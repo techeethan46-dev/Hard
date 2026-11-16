@@ -31,7 +31,26 @@ export const STEPS = [
     desc: 'New ticket channels are created inside this category.' },
   { key: 'ticketLogChannel', kind: 'channel', section: 'Tickets', emoji: '📜', title: 'Ticket log channel',
     desc: 'Transcripts of closed tickets are posted here. Make it staff-only.' },
+  { key: 'levelUpChannel', kind: 'channel', section: 'Levels', emoji: '🎉', title: 'Level-up channel',
+    desc: 'Level-up messages go here. If you skip this, they show up in whatever channel the person was chatting in.' },
+  { key: 'levelRewards', kind: 'rewards', section: 'Levels', emoji: '🎁', title: 'Level rewards',
+    desc: 'Give a role when someone reaches a level. Pick a role, then type the level.\nExample: level **5** → @Active, level **20** → @Veteran.' },
+  { key: 'streakTimezone', kind: 'timezone', section: 'Levels', emoji: '🕛', title: 'Streak timezone',
+    desc: 'Chat streaks count calendar days. Pick where most of your members live, so a "day" ends at their midnight.' },
 ];
+
+export const TIMEZONES = [
+  ['UTC', 'UTC (world time)'], ['America/Los_Angeles', 'US Pacific (Los Angeles)'], ['America/Denver', 'US Mountain (Denver)'],
+  ['America/Chicago', 'US Central (Chicago)'], ['America/New_York', 'US Eastern (New York)'], ['America/Mexico_City', 'Mexico City'],
+  ['America/Sao_Paulo', 'Brazil (São Paulo)'], ['America/Argentina/Buenos_Aires', 'Argentina (Buenos Aires)'],
+  ['Europe/London', 'UK (London)'], ['Europe/Paris', 'Central Europe (Paris, Berlin)'], ['Europe/Athens', 'Eastern Europe (Athens)'],
+  ['Europe/Istanbul', 'Turkey (Istanbul)'], ['Europe/Moscow', 'Russia (Moscow)'], ['Africa/Lagos', 'West Africa (Lagos)'],
+  ['Africa/Johannesburg', 'South Africa (Johannesburg)'], ['Asia/Dubai', 'Gulf (Dubai)'], ['Asia/Tehran', 'Iran (Tehran)'],
+  ['Asia/Kolkata', 'India'], ['Asia/Jakarta', 'Indonesia (Jakarta)'], ['Asia/Manila', 'Philippines, Singapore, Malaysia'],
+  ['Asia/Shanghai', 'China, Hong Kong, Taiwan'], ['Asia/Tokyo', 'Japan, Korea'], ['Australia/Sydney', 'Australia East (Sydney)'],
+  ['Pacific/Auckland', 'New Zealand'],
+];
+const tzLabel = (tz) => TIMEZONES.find(([id]) => id === tz)?.[1] ?? tz;
 const OVERVIEW = STEPS.length;
 
 export const data = new SlashCommandBuilder()
@@ -87,12 +106,39 @@ export async function handleSelect(interaction) {
     await updateSettings(interaction.guildId, { [s.key]: s.kind === 'roles' ? values : values[0] });
     return interaction.update(await render(interaction.guild, step + 1));
   }
+
+  if (action === 'rewardrole') {
+    const role = interaction.guild.roles.cache.get(values[0]);
+    return interaction.showModal(
+      new ModalBuilder().setCustomId(`setup:reward:${step}:${values[0]}`).setTitle(`Level for @${role?.name ?? 'role'}`.slice(0, 45)).addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('level').setLabel('Level needed (1-500)')
+          .setStyle(TextInputStyle.Short).setMaxLength(3).setPlaceholder('10')),
+      ),
+    );
+  }
+
+  if (action === 'unreward') {
+    const { levelRewards = [] } = await getSettings(interaction.guildId);
+    await updateSettings(interaction.guildId, { levelRewards: levelRewards.filter((r) => r.roleId !== values[0]) });
+    return interaction.update(await render(interaction.guild, step));
+  }
 }
 
 export async function handleModal(interaction) {
   if (!allowed(interaction)) return denied(interaction);
-  const [, action, stepStr] = interaction.customId.split(':');
+  const [, action, stepStr, roleId] = interaction.customId.split(':');
   const step = Number(stepStr);
+
+  if (action === 'reward') {
+    const level = Number(interaction.fields.getTextInputValue('level').trim());
+    if (!Number.isInteger(level) || level < 1 || level > 500) {
+      return interaction.update(await render(interaction.guild, step, 'The level must be a whole number from 1 to 500.'));
+    }
+    const { levelRewards = [] } = await getSettings(interaction.guildId);
+    const next = [...levelRewards.filter((r) => r.roleId !== roleId), { roleId, level }].sort((a, b) => a.level - b.level);
+    await updateSettings(interaction.guildId, { levelRewards: next });
+    return interaction.update(await render(interaction.guild, step));
+  }
 
   if (action === 'link') {
     const input = interaction.fields.getTextInputValue('link').trim();
@@ -110,8 +156,8 @@ export async function handleModal(interaction) {
 
 const allowed = (i) => i.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
 const denied = (i) => i.reply(notice('bad', 'You need the **Manage Server** permission to change the setup.'));
-const SECTION_COLORS = { Roles: colors.brand, Roblox: colors.roblox, Channels: colors.info, Tickets: colors.ticket };
-const SECTION_ICONS = { Roles: '🎭', Roblox: '🎮', Channels: '📡', Tickets: '🎫' };
+const SECTION_COLORS = { Roles: colors.brand, Roblox: colors.roblox, Channels: colors.info, Tickets: colors.ticket, Levels: colors.ok };
+const SECTION_ICONS = { Roles: '🎭', Roblox: '🎮', Channels: '📡', Tickets: '🎫', Levels: '⭐' };
 
 function linkModal(step) {
   return new ModalBuilder().setCustomId(`setup:link:${step}`).setTitle('Roblox game').addComponents(
@@ -133,6 +179,8 @@ function show(step, s) {
     case 'channel':
     case 'category': return `<#${v}>`;
     case 'game': return `[${s.gameName ?? v}](${gameUrl(v)})`;
+    case 'timezone': return tzLabel(v);
+    case 'rewards': return v.map((r) => `Level **${r.level}** → <@&${r.roleId}>`).join(', ');
     default: return String(v);
   }
 }
@@ -168,6 +216,28 @@ export async function render(guild, step, error) {
       .setPlaceholder(`Select the ${st.title.toLowerCase()}…`);
     if (s[st.key] && guild.channels.cache.has(s[st.key])) menu.setDefaultChannels(s[st.key]);
     picker = new ActionRowBuilder().addComponents(menu);
+  } else if (st.kind === 'timezone') {
+    picker = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder().setCustomId(`setup:set:${step}`).setPlaceholder('Select a timezone…').addOptions(
+        TIMEZONES.map(([id, label]) => ({ label, value: id, default: id === s.streakTimezone })),
+      ),
+    );
+  } else if (st.kind === 'rewards') {
+    const rewards = s.levelRewards ?? [];
+    picker = [
+      new ActionRowBuilder().addComponents(
+        new RoleSelectMenuBuilder().setCustomId(`setup:rewardrole:${step}`).setPlaceholder('➕ Add: pick a role, then type its level…'),
+      ),
+      rewards.length
+        ? new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder().setCustomId(`setup:unreward:${step}`).setPlaceholder('➖ Remove one…').addOptions(
+            rewards.slice(0, 25).map((r) => ({
+              label: `Level ${r.level} → @${guild.roles.cache.get(r.roleId)?.name ?? 'deleted role'}`.slice(0, 100), value: r.roleId,
+            })),
+          ),
+        )
+        : null,
+    ];
   } else if (st.kind === 'game') {
     picker = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`setup:ask:${step}`).setStyle(ButtonStyle.Success).setEmoji('🔗')
@@ -180,12 +250,14 @@ export async function render(guild, step, error) {
     divider(),
     text(`## ${st.emoji} ${st.title}`, st.desc),
     divider({ line: false }),
-    text(`**Current** · ${current ? `✅ ${current}` : '➖ Not set'}`),
+    text(`**Current** · ${current ? `✅ ${current}` : st.kind === 'timezone' ? '➖ Not set · using UTC' : '➖ Not set'}`),
     error ? text(`❌ ${error}`) : null,
     divider(),
     picker,
     navRow(step, { canClear: Boolean(current) }),
-    footnote(st.kind === 'game' ? 'We check the link with Roblox before saving' : 'Pick below · it saves instantly and moves to the next step'),
+    footnote(st.kind === 'game' ? 'We check the link with Roblox before saving'
+      : st.kind === 'rewards' ? 'Add as many as you like, then press Next'
+        : 'Pick below · it saves instantly and moves to the next step'),
   ));
 }
 
@@ -203,7 +275,7 @@ export function checks(guild, s) {
   const missing = Object.entries(needed).filter(([p]) => !me.permissions.has(PermissionFlagsBits[p])).map(([, what]) => what);
   if (missing.length) out.push(`⚠️ The bot's role is missing permissions to **${missing.join(', ')}**.`);
 
-  const handedOut = [s.verifiedRole, s.unverifiedRole].filter(Boolean);
+  const handedOut = [s.verifiedRole, s.unverifiedRole, ...(s.levelRewards ?? []).map((r) => r.roleId)].filter(Boolean);
   for (const id of new Set(handedOut)) {
     const role = guild.roles.cache.get(id);
     if (!role) out.push(`⚠️ A role you picked was deleted. Pick it again.`);

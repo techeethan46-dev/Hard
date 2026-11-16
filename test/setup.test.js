@@ -106,3 +106,33 @@ test('only Manage Server members can use the menus', async () => {
   assert.equal(x.calls[0].kind, 'reply');
   assert.match(textOf(x.calls[0].p), /Manage Server/);
 });
+
+test('level rewards: add with a level, validate, remove', async () => {
+  const step = STEPS.findIndex((s) => s.key === 'levelRewards');
+  const pick = i(`setup:rewardrole:${step}`, { values: ['staff'] });
+  await setup.handleSelect(pick);
+  assert.equal(pick.calls[0].kind, 'showModal');
+
+  const lvl = (v) => ({ fields: { getTextInputValue: () => v } });
+  const bad = i(`setup:reward:${step}:staff`, lvl('abc'));
+  await setup.handleModal(bad);
+  assert.match(desc(bad.calls[0]), /whole number from 1 to 500/);
+
+  await setup.handleModal(i(`setup:reward:${step}:staff`, lvl('20')));
+  await setup.handleModal(i(`setup:reward:${step}:verified`, lvl('5')));
+  assert.deepEqual((await getSettings('g1')).levelRewards, [{ roleId: 'verified', level: 5 }, { roleId: 'staff', level: 20 }]);
+  const shown = await render(guild, step);
+  json(shown);
+  assert.match(textOf(shown), /Level \*\*5\*\* → <@&verified>, Level \*\*20\*\* → <@&staff>/);
+
+  await setup.handleSelect(i(`setup:unreward:${step}`, { values: ['verified'] }));
+  assert.deepEqual((await getSettings('g1')).levelRewards, [{ roleId: 'staff', level: 20 }]);
+});
+
+test('streak timezone is picked from a list', async () => {
+  const step = STEPS.findIndex((s) => s.key === 'streakTimezone');
+  assert.match(textOf(await render(guild, step)), /Not set · using UTC/);
+  await setup.handleSelect(i(`setup:set:${step}`, { values: ['America/New_York'] }));
+  assert.equal((await getSettings('g1')).streakTimezone, 'America/New_York');
+  assert.match(textOf(await render(guild, step)), /US Eastern \(New York\)/);
+});

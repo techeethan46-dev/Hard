@@ -1,6 +1,7 @@
 # Roblox Community Bot
 
-A Discord bot for a Roblox game community: Roblox verification, tickets, game stats, suggestions and moderation. Built with [discord.js](https://discord.js.org) v14 and MongoDB, ready for Render.
+A Discord bot for a Roblox game community: Roblox verification, levels, daily chat streaks, tickets, game stats,
+suggestions and moderation. Built with [discord.js](https://discord.js.org) v14 and MongoDB, ready for Render.
 
 Everything server-specific (roles, channels, the game) is set **inside Discord with `/setup`**.
 No IDs to copy.
@@ -42,6 +43,9 @@ Every pick saves instantly. After the last step, a summary page shows everything
 | 💡 Suggestions channel | Where `/suggest` posts |
 | 🎫 Ticket category | Where ticket channels are created |
 | 📜 Ticket log channel | Transcripts of closed tickets |
+| 🎉 Level-up channel | Where level-up messages go (otherwise the channel they chatted in) |
+| 🎁 Level rewards | Pick a role and the level that unlocks it |
+| 🕛 Streak timezone | When a "day" ends for chat streaks (default UTC) |
 
 The summary page also runs checks and tells you what to fix in plain words, like "drag the bot's role above
 @Verified" or "the bot can't post in #mod-log".
@@ -58,6 +62,10 @@ Skip any step you don't need; that feature just stays off.
 | `/unverify` | Everyone | Unlinks your Roblox account |
 | `/whois [member] [username]` | Everyone | Roblox profile and linked Discord account |
 | `/game` | Everyone | Players online, visits, favorites, last update, Play button |
+| `/rank [member]` | Everyone | Level, XP progress, server position, streak and restores |
+| `/leaderboard` | Everyone | Top 10 by level or by streak (buttons to switch) |
+| `/streak` | Everyone | Your streak, restores left, and a Restore button when it broke |
+| `/xp set-level/give/reset` | Admins | Adjust someone's level, XP or streak |
 | `/suggest idea` | Everyone | Posts an idea with 👍/👎 and a discussion thread |
 | Ticket buttons, `/ticket close` | Everyone | Opens a private support channel |
 | `/ticket add/remove member` | Support staff | Brings someone into a ticket |
@@ -66,6 +74,20 @@ Skip any step you don't need; that feature just stays off.
 | `/setup`, `/panel verify`, `/panel tickets` | Admins | Setup and button panels |
 
 Moderation commands are hidden from members without the matching permission.
+
+## Levels and streaks
+
+**Levels:** every message earns 15–25 XP, at most once a minute (so spamming doesn't help). Going from level L to
+L+1 takes 5L² + 50L + 100 XP. Level-ups are announced with a card, and reward roles from `/setup` are given
+automatically.
+
+**Streaks:** chat at least once a day and your nickname shows it: `Superman [1🔥]`, `Superman [2🔥]`, ...
+- Miss a whole day and the streak ends (the badge comes off). The next time you chat, the bot replies with a
+  **Restore** button that disappears after a minute. `/streak` shows it too.
+- Restoring costs **1 restore per missed day** and adds your old streak back on top of the new one.
+- Everyone gets **3 restores per calendar month**.
+- Days follow the timezone chosen in `/setup`.
+- The bot can't rename the server owner or anyone whose role is above the bot's, so they won't get a badge.
 
 ## Verification
 

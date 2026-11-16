@@ -9,7 +9,8 @@ requireConfig('token');
 
 const client = new Client({
   // GuildMembers is a privileged intent: enable "Server Members Intent" in the Developer Portal (Bot tab).
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  // GuildMessages lets the bot see that someone chatted (for XP and streaks). It doesn't read message text.
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages],
   partials: [Partials.GuildMember],
 });
 
