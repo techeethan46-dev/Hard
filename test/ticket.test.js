@@ -121,6 +121,13 @@ test('open -> form -> private channel -> claim -> close with transcript', async 
   const close = interaction(player, { customId: 'ticket:confirmclose', button: true, channelId: ch.id, channel: ch });
   await ticket.handleButton(close);
   assert.equal(logSent.length, 1);
+  assert.ok(isV2(logSent[0]), 'log uses the card layout');
+  const logJson = JSON.stringify(logSent[0].components.map((c) => c.toJSON()));
+  assert.match(logJson, /"type":13/); // file component
+  assert.match(logJson, /attachment:\/\/report-0001\.txt/);
+  assert.match(textOf(logSent[0]), /Ticket #0001 closed/);
+  assert.match(textOf(logSent[0]), /Claimed by\*\* <@s1>/);
+  assert.match(textOf(dms[0].m), /Thanks for reaching out/);
   const transcript = logSent[0].files[0].attachment.toString();
   assert.match(transcript, /player#0: my game is broken/);
   assert.equal(dms[0].id, 'p1');

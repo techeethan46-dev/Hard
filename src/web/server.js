@@ -49,6 +49,32 @@ small{display:block;margin-top:16px;color:#6d6f78;font-size:13px}
 <body><main>${badge}<h1>${esc(title)}</h1><p>${body}</p>${back}<small>You can close this tab.</small></main></body></html>`;
 };
 
+/** Plain text pages Roblox's OAuth app form can link to. */
+const POLICY = {
+  '/privacy': ['Privacy policy', `
+<p>This Discord bot links a member's Discord account to their Roblox account when they choose to verify.</p>
+<p><b>What we store:</b> your Discord user ID, your Roblox user ID and username, and the time you verified. We also store
+server activity the bot needs to work: chat XP, daily streaks, warnings given by staff, and support tickets.</p>
+<p><b>What we never get:</b> your Roblox password or anything you didn't approve on the Roblox sign-in screen
+(only your public profile: user ID, username, display name and avatar).</p>
+<p><b>How it's used:</b> only to give you roles and a nickname in this Discord server and to show your Roblox profile in
+bot commands. It isn't sold or shared.</p>
+<p><b>Removing your data:</b> run <code>/unverify</code> in the server to unlink your account, or ask the server staff to
+delete your data.</p>`],
+  '/terms': ['Terms of use', `
+<p>This bot is provided by the server's staff to run their Discord community, as is and without guarantees.</p>
+<p>By verifying you agree that the bot may read your public Roblox profile and use it in this Discord server.
+Don't misuse the bot or try to verify with an account that isn't yours. Staff may remove access for anyone who does.</p>
+<p>Roblox is a trademark of Roblox Corporation. This bot is not made or endorsed by Roblox.</p>`],
+};
+
+const policyPage = (title, html) => `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
+<style>body{margin:0;background:#111214;color:#dbdee1;font:16px/1.65 "gg sans","Segoe UI",system-ui,sans-serif;padding:32px 16px}
+main{max-width:640px;margin:0 auto;background:#1e1f22;border:1px solid #2e3035;border-radius:16px;padding:28px}
+h1{color:#f2f3f5;margin:0 0 12px;font-size:26px}b{color:#f2f3f5}code{background:#2b2d31;padding:1px 6px;border-radius:4px}</style></head>
+<body><main><h1>${esc(title)}</h1>${html}</main></body></html>`;
+
 export async function handleCallback(client, params) {
   if (params.get('error')) {
     return [400, page('Sign-in cancelled', 'No changes were made. Press <b>Verify</b> in Discord whenever you\'re ready.', 'bad')];
@@ -77,6 +103,8 @@ export function startWebServer(client) {
         // Health check for Render: only healthy once logged in to Discord.
         status = client.isReady?.() ? 200 : 503;
         html = status === 200 ? 'ok' : 'starting';
+      } else if (POLICY[url.pathname]) {
+        [status, html] = [200, policyPage(...POLICY[url.pathname])];
       } else if (url.pathname === '/oauth/callback' && oauthEnabled()) {
         [status, html] = await handleCallback(client, url.searchParams);
       }

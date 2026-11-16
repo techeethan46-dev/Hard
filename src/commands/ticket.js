@@ -1,12 +1,22 @@
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags, ModalBuilder, OverwriteType,
-  PermissionFlagsBits, SlashCommandBuilder, TextInputBuilder, TextInputStyle, time,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, FileBuilder, MessageFlags, ModalBuilder, OverwriteType,
+  PermissionFlagsBits, SlashCommandBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { config } from '../config.js';
 import { getSettings } from '../lib/settings.js';
 import { store } from '../lib/store.js';
 import { buildTranscript } from '../lib/transcript.js';
-import { card, colors, divider, embed, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
+import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
+
+/** 7 minutes, 3 hours, 2 days */
+function duration(ms) {
+  const m = Math.max(1, Math.round(ms / 60_000));
+  if (m < 60) return `${m} minute${m === 1 ? '' : 's'}`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} hour${h === 1 ? '' : 's'}`;
+  const d = Math.round(h / 24);
+  return `${d} days`;
+}
 
 // Flow: member clicks a category on the /panel tickets message -> fills in a short form ->
 // a private channel is created for them + support staff -> staff claim it -> anyone closes it ->
@@ -209,26 +219,31 @@ async function closeTicket(interaction, reason) {
 
   try {
     const file = await buildTranscript(channel, header);
-    const summary = embed(colors.ticket)
-      .setAuthor({ name: interaction.guild.name, iconURL: interaction.guild.iconURL() ?? undefined })
-      .setTitle(`${type?.emoji ?? '🎫'} Ticket #${String(ticket.number).padStart(4, '0')} closed`)
-      .addFields(
-        { name: 'Type', value: type?.label ?? ticket.type, inline: true },
-        { name: 'Opened by', value: `<@${ticket.ownerId}>`, inline: true },
-        { name: 'Claimed by', value: ticket.claimedBy ? `<@${ticket.claimedBy}>` : '—', inline: true },
-        { name: 'Closed by', value: `${interaction.user}`, inline: true },
-        { name: 'Opened', value: time(new Date(ticket.openedAt), 'f'), inline: true },
-        { name: 'Reason', value: reason || '—' },
-      )
-      .setFooter({ text: 'Full conversation attached' });
+    const closedCard = (forMember) => v2(card(colors.ticket,
+      section([
+        `-# ${interaction.guild.name}`,
+        `### ${type?.emoji ?? '🎫'} Ticket #${String(ticket.number).padStart(4, '0')} closed`,
+        forMember ? 'Thanks for reaching out! A copy of the conversation is attached.' : `**${type?.label ?? ticket.type}**`,
+      ], thumb(interaction.guild.iconURL({ size: 128 }))),
+      divider(),
+      text(
+        `👤 **Opened by** <@${ticket.ownerId}>`,
+        `🙋 **Claimed by** ${ticket.claimedBy ? `<@${ticket.claimedBy}>` : '*nobody*'}`,
+        `🔒 **Closed by** ${interaction.user}`,
+        `⏱️ **Open for** ${duration(Date.now() - ticket.openedAt)} · since <t:${Math.floor(ticket.openedAt / 1000)}:f>`,
+        reason ? `📝 **Reason** ${reason}` : null,
+      ),
+      divider(),
+      new FileBuilder().setURL(`attachment://${file.name}`),
+      footnote('Full conversation in the file above'),
+    ));
 
     const { ticketLogChannel } = await getSettings(interaction.guildId);
     const log = ticketLogChannel && (await interaction.guild.channels.fetch(ticketLogChannel).catch(() => null));
-    if (log?.isTextBased()) await log.send({ embeds: [summary], files: [file] });
+    if (log?.isTextBased()) await log.send({ ...closedCard(false), files: [file] });
 
     const owner = await interaction.client.users.fetch(ticket.ownerId).catch(() => null);
-    await owner?.send({ embeds: [summary.setDescription(`Your ticket in **${interaction.guild.name}** was closed. A copy of the conversation is attached.`)], files: [file] })
-      .catch(() => {}); // DMs closed
+    await owner?.send({ ...closedCard(true), files: [file] }).catch(() => {}); // DMs closed
   } catch (err) {
     console.error('Transcript failed:', err);
   }
