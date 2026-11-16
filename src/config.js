@@ -31,5 +31,8 @@ export function requireConfig(...keys) {
   }
 }
 
+/** Public link to an image in /assets (served by the bot's web server), or null when the address isn't known. */
+export const assetUrl = (file) => (config.oauth.publicUrl ? `${config.oauth.publicUrl}/assets/${file}` : null);
+
 /** "Sign in with Roblox" is used when all three OAuth settings are present. */
 export const oauthEnabled = () => Boolean(config.oauth.clientId && config.oauth.clientSecret && config.oauth.publicUrl);

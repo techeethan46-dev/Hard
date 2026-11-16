@@ -45,6 +45,7 @@ async function mongoBackend(db) {
   const counters = db.collection('counters');
   const settings = db.collection('guildSettings');
   const stats = db.collection('memberStats');
+  const giveaways = db.collection('giveaways');
 
   await Promise.all([
     links.createIndex({ robloxId: 1 }),
@@ -54,6 +55,8 @@ async function mongoBackend(db) {
     stats.createIndex({ guildId: 1, xp: -1 }),
     stats.createIndex({ guildId: 1, 'streak.current': -1 }),
     stats.createIndex({ guildId: 1, 'streak.lastDay': 1 }),
+    giveaways.createIndex({ ended: 1, endsAt: 1 }),
+    giveaways.createIndex({ guildId: 1, endsAt: -1 }),
   ]);
 
   // Stored with _id = Discord/channel ID; hand back plain objects without Mongo's fields.
@@ -65,7 +68,28 @@ async function mongoBackend(db) {
   };
 
   const sid = (g, u) => `${g}:${u}`;
+  const gw = (doc) => (doc ? { ...clean(doc), messageId: doc._id } : null);
   return {
+    giveaways: {
+      create: async (g) => { await giveaways.insertOne({ _id: g.messageId, ...g, entries: [], ended: false, winnerIds: [] }); },
+      get: async (id) => gw(await giveaways.findOne({ _id: id })),
+      /** Adds an entry; returns the new entry count, or null if they were already in. */
+      enter: async (id, userId) => {
+        const r = await giveaways.findOneAndUpdate({ _id: id, ended: false, entries: { $ne: userId } }, { $push: { entries: userId } }, { returnDocument: 'after', projection: { entries: 1 } });
+        return r ? r.entries.length : null;
+      },
+      leave: async (id, userId) => {
+        const r = await giveaways.findOneAndUpdate({ _id: id, ended: false }, { $pull: { entries: userId } }, { returnDocument: 'after', projection: { entries: 1 } });
+        return r ? r.entries.length : null;
+      },
+      /** Marks it ended (only once, even if two things try at the same time). Returns it, or null. */
+      finish: async (id) => gw(await giveaways.findOneAndUpdate({ _id: id, ended: false }, { $set: { ended: true, endedAt: Date.now() } }, { returnDocument: 'after' })),
+      update: async (id, patch) => { await giveaways.updateOne({ _id: id }, { $set: patch }); },
+      delete: async (id) => { await giveaways.deleteOne({ _id: id }); },
+      due: async (now) => (await giveaways.find({ ended: false, endsAt: { $lte: now } }).project({ entries: 0 }).toArray()).map(gw),
+      list: async (guildId, { ended } = {}) =>
+        (await giveaways.find({ guildId, ...(ended === undefined ? {} : { ended }) }).project({ entries: 0 }).sort({ endsAt: -1 }).limit(25).toArray()).map(gw),
+    },
     stats: {
       get: async (g, u) => clean(await stats.findOne({ _id: sid(g, u) })),
       /** Adds XP atomically and returns the updated record. */
@@ -143,7 +167,7 @@ async function mongoBackend(db) {
 // ---------------------------------------------------------------- In-memory / JSON file (dev & tests)
 
 export function memoryBackend(path = null) {
-  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {}, stats: {} };
+  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {}, stats: {}, giveaways: {} };
   if (path) {
     mkdirSync(dirname(path), { recursive: true });
     try {
@@ -162,8 +186,37 @@ export function memoryBackend(path = null) {
   const wkey = (g, d) => `${g}:${d}`;
   const field = (doc, path) => path.split('.').reduce((o, k) => o?.[k], doc) ?? 0;
   const inGuild = (g) => Object.values(data.stats).filter((d) => d.guildId === g);
+  const noEntries = (g) => { const { entries, ...rest } = g; return copy(rest); };
   return {
     _data: data,
+    giveaways: {
+      create: async (g) => { data.giveaways[g.messageId] = { ...structuredClone(g), entries: [], ended: false, winnerIds: [] }; save(); },
+      get: async (id) => copy(data.giveaways[id]),
+      enter: async (id, u) => {
+        const g = data.giveaways[id];
+        if (!g || g.ended || g.entries.includes(u)) return null;
+        g.entries.push(u); save();
+        return g.entries.length;
+      },
+      leave: async (id, u) => {
+        const g = data.giveaways[id];
+        if (!g || g.ended) return null;
+        g.entries = g.entries.filter((x) => x !== u); save();
+        return g.entries.length;
+      },
+      finish: async (id) => {
+        const g = data.giveaways[id];
+        if (!g || g.ended) return null;
+        Object.assign(g, { ended: true, endedAt: Date.now() }); save();
+        return copy(g);
+      },
+      update: async (id, patch) => { if (data.giveaways[id]) Object.assign(data.giveaways[id], structuredClone(patch)); save(); },
+      delete: async (id) => { delete data.giveaways[id]; save(); },
+      due: async (now) => Object.values(data.giveaways).filter((g) => !g.ended && g.endsAt <= now).map(noEntries),
+      list: async (guildId, { ended } = {}) => Object.values(data.giveaways)
+        .filter((g) => g.guildId === guildId && (ended === undefined || g.ended === ended))
+        .sort((a, b) => b.endsAt - a.endsAt).slice(0, 25).map(noEntries),
+    },
     stats: {
       get: async (g, u) => copy(data.stats[wkey(g, u)]),
       addXp: async (g, u, amount) => {

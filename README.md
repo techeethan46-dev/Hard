@@ -73,6 +73,7 @@ Skip any step you don't need; that feature just stays off.
 | `/streak` | Everyone | Your streak, restores left, and a Restore button when it broke |
 | `/xp set-level/give/reset` | Admins | Adjust someone's level, XP or streak |
 | `/raidmode on/off/status` | Admins | Turn raid mode on or off by hand |
+| `/giveaway start/end/reroll/cancel/list` | Admins | Giveaways with requirements and bonus entries |
 | `/roles create` | Admins | Build a self-role panel (buttons or dropdown, many or only-one) and post it |
 | `/sticky set/remove/list` | Moderators | Keep a message at the bottom of a channel |
 | `r!afk [reason]` | Everyone | Go AFK, e.g. `r!afk Too tired` |
@@ -98,6 +99,19 @@ automatically.
 - Everyone gets **3 restores per calendar month**.
 - Days follow the timezone chosen in `/setup`.
 - The bot can't rename the server owner or anyone whose role is above the bot's, so they won't get a badge.
+
+## Giveaways
+
+`/giveaway start prize:"1,000 Robux" duration:1d winners:2` posts a gold giveaway card with the prize, a live
+countdown, the winner count, an entry counter and an **Enter giveaway** button. Optional:
+- `required_role`, `min_level`, `must_verify`: who can enter (people who can't are told exactly why)
+- `bonus_role`: that role gets 2× entries (e.g. Server Booster)
+- `description`, `channel`
+
+Durations: `30m`, `2h`, `1d`, `1w`, `1d12h` (1 minute to 30 days). When time's up the card turns into a winners card,
+a 🎊 congratulations message pings the winners, and each winner gets a DM. Winners are re-checked when drawn
+(still in the server, still meet the requirements). `end`, `reroll` and `cancel` let you pick the giveaway from a list
+as you type. Giveaways are saved in MongoDB, so they still end on time after a restart.
 
 ## Self-roles, sticky messages and AFK
 

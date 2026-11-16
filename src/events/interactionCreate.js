@@ -5,6 +5,10 @@ export const name = Events.InteractionCreate;
 
 export async function execute(interaction, commands) {
   if (!interaction.inGuild()) return;
+  if (interaction.isAutocomplete()) {
+    return Promise.resolve(commands.get(interaction.commandName)?.autocomplete?.(interaction))
+      .catch((err) => console.error('Autocomplete failed:', err.message));
+  }
   let command;
   if (interaction.isChatInputCommand()) command = commands.get(interaction.commandName);
   // Buttons and modals are routed by customId prefix: "ticket:close" -> commands/ticket.js
