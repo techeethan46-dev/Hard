@@ -1,7 +1,7 @@
 // Shared look for every message the bot sends. Most screens use Discord's "Components V2" cards
 // (rounded container + colored edge + dividers), so everything feels like one app.
 import {
-  ButtonBuilder, ContainerBuilder, EmbedBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, MessageFlags,
+  ButtonBuilder, ContainerBuilder, EmbedBuilder, FileBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, MessageFlags,
   SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder, ThumbnailBuilder,
 } from 'discord.js';
 import { getSettings } from './settings.js';
@@ -58,6 +58,7 @@ export function card(accent, ...parts) {
     else if (p instanceof SeparatorBuilder) c.addSeparatorComponents(p);
     else if (p instanceof SectionBuilder) c.addSectionComponents(p);
     else if (p instanceof MediaGalleryBuilder) c.addMediaGalleryComponents(p);
+    else if (p instanceof FileBuilder) c.addFileComponents(p);
     else c.addActionRowComponents(p);
   }
   return c;
