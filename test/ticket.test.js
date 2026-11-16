@@ -7,8 +7,8 @@ process.env.TICKET_CATEGORY_ID = 'cat';
 process.env.TICKET_LOG_CHANNEL_ID = 'log';
 process.env.SUPPORT_ROLE_IDS = 'support';
 
-const { db } = await import('../src/lib/store.js');
-db.save = () => {};
+const { initStore } = await import('../src/lib/store.js');
+const store = await initStore({ jsonPath: null });
 const ticket = await import('../src/commands/ticket.js');
 const panel = await import('../src/commands/panel.js');
 
@@ -96,7 +96,7 @@ test('open -> form -> private channel -> claim -> close with transcript', async 
   const fields = ch.sent[0].embeds[0].toJSON().fields;
   assert.ok(fields.some((f) => f.value === 'BadGuy123'));
   assert.ok(fields.some((f) => f.value === '—')); // optional evidence left blank
-  assert.equal(db.data.tickets[ch.id].ownerId, 'p1');
+  assert.equal((await store.tickets.get(ch.id)).ownerId, 'p1');
 
   // 3. A second ticket from the same member is refused
   const again = interaction(player, { customId: 'ticket:open:bug', button: true });
@@ -109,7 +109,7 @@ test('open -> form -> private channel -> claim -> close with transcript', async 
   assert.match(JSON.stringify(notStaff.calls[0].p), /Only staff/);
   const staff = interaction(member('s1', { staff: true }), { customId: 'ticket:claim', button: true, channelId: ch.id, channel: ch });
   await ticket.handleButton(staff);
-  assert.equal(db.data.tickets[ch.id].claimedBy, 's1');
+  assert.equal((await store.tickets.get(ch.id)).claimedBy, 's1');
 
   // 5. Owner closes: transcript to log channel + DM, channel deleted
   const close = interaction(player, { customId: 'ticket:confirmclose', button: true, channelId: ch.id, channel: ch });
@@ -118,7 +118,7 @@ test('open -> form -> private channel -> claim -> close with transcript', async 
   const transcript = logSent[0].files[0].attachment.toString();
   assert.match(transcript, /player#0: my game is broken/);
   assert.equal(dms[0].id, 'p1');
-  assert.ok(!db.data.tickets[ch.id]);
+  assert.ok(!(await store.tickets.get(ch.id)));
   await new Promise((r) => setTimeout(r, 5100));
   assert.ok(ch.deleted);
 });

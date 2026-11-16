@@ -71,10 +71,10 @@ Members can have one open ticket at a time.
      Kick Members, Ban Members, Moderate Members, Manage Messages, Send Messages, Embed Links, Add Reactions,
      Create Public Threads, Read Message History**. Open the URL to invite the bot.
 2. **In your server**, run `/panel verify` in your #verify channel (after step 4), and drag the bot's role **above** every role it should hand out (Verified, rank roles, etc.).
-3. **Install and configure** (needs Node.js 18.17+):
+3. **Install and configure** (needs Node.js 20.19+):
    ```bash
    npm install
-   cp .env.example .env      # fill in the token, IDs, place ID, group ID
+   cp .env.example .env      # fill in the token, IDs, MongoDB URI, place ID, group ID
    ```
    Edit `config.json` to map group ranks to role IDs (bindings with an empty `roleId` are ignored).
    Turn on *Developer Mode* in Discord (Settings → Advanced) to right-click → **Copy ID** on channels/roles.
@@ -84,14 +84,34 @@ Members can have one open ticket at a time.
    npm start
    ```
 
-To keep it online 24/7, run it on a VPS with `pm2 start src/index.js --name roblox-bot`, or a host such as Railway or Fly.io.
+## Hosting on Render + MongoDB
+
+**1. MongoDB (Atlas)**
+- Create a database user (*Database Access*) and copy the connection string (*Database → Connect → Drivers*).
+- *Network Access*: allow Render's outbound IPs (Render dashboard → your service → *Connect → Outbound*), or `0.0.0.0/0`.
+- The bot creates its collections and indexes itself: `links`, `pendingVerifications`, `warnings`, `tickets`, `counters`.
+
+**2. Render**
+- Push this repo to GitHub, then in Render: **New → Blueprint** → pick the repo. It reads `render.yaml`.
+- Fill in the values it asks for (same as `.env.example`), including `MONGODB_URI`.
+- Every deploy registers the slash commands and starts the bot. `/health` is used as the health check.
+- **Use the Starter plan or higher.** The free plan sleeps after 15 minutes with no web traffic, and the bot goes offline with it.
+
+**3. Sign in with Roblox on Render**
+- You don't need `PUBLIC_URL`: Render's address (e.g. `https://roblox-community-bot.onrender.com`) is picked up automatically.
+- In the Roblox Creator Dashboard, set the OAuth redirect URL to `https://<your-service>.onrender.com/oauth/callback`.
+- If you add a custom domain on Render, set `PUBLIC_URL` to it and update the redirect URL to match.
+
+Locally, `npm start` works without MongoDB (data goes to `data/db.json`). Never use that mode on Render: its disk is
+wiped on every deploy.
 
 ## Notes
 
 - Uses Roblox's public web APIs — no Roblox API key needed.
-- Data (links, warnings) is stored in `data/db.json`. Back it up; swap in SQLite/Postgres if you outgrow it.
+- Data is stored in MongoDB (`MONGODB_URI`). Atlas backs it up for you on paid tiers; on the free tier, export it now and then.
 - Built for one server (`GUILD_ID`).
-- `npm test` runs offline tests with mocked Roblox responses.
+- `npm test` runs offline tests with mocked Roblox responses. To also test against your MongoDB, run
+  `MONGODB_TEST_URI="<connection string>" npm test`. That uses a throwaway `roblox-bot-test` database and deletes it afterwards.
 
 ## Project layout
 
@@ -104,7 +124,8 @@ src/
   events/               ready (status), member join (welcome + sync), interaction router
   lib/roblox.js         Roblox API calls
   lib/roles.js          role + nickname sync
-  lib/store.js          JSON storage
+  lib/store.js          MongoDB storage (JSON file fallback for local dev)
   lib/oauth.js          Sign in with Roblox
-  web/server.js         receives the Roblox sign-in redirect
+  web/server.js         health check + Roblox sign-in redirect
+render.yaml             Render deployment config
 ```

@@ -1,6 +1,6 @@
 // Small web server that receives the "Sign in with Roblox" redirect.
 import { createServer } from 'node:http';
-import { config } from '../config.js';
+import { config, oauthEnabled } from '../config.js';
 import { consumeSession, exchangeCode } from '../lib/oauth.js';
 import { linkAccount } from '../lib/verification.js';
 
@@ -34,14 +34,19 @@ export function startWebServer(client) {
     let status = 404;
     let html = page('Not found', '', false);
     try {
-      if (url.pathname === '/') [status, html] = [200, 'ok'];
-      else if (url.pathname === '/oauth/callback') [status, html] = await handleCallback(client, url.searchParams);
+      if (url.pathname === '/' || url.pathname === '/health') {
+        // Health check for Render: only healthy once logged in to Discord.
+        status = client.isReady?.() ? 200 : 503;
+        html = status === 200 ? 'ok' : 'starting';
+      } else if (url.pathname === '/oauth/callback' && oauthEnabled()) {
+        [status, html] = await handleCallback(client, url.searchParams);
+      }
     } catch (err) {
       console.error('OAuth callback failed:', err);
       [status, html] = [500, page('Something went wrong', 'Please go back to Discord and try again.', false)];
     }
     res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }).end(html);
   });
-  server.listen(config.oauth.port, () => console.log(`Verification web server on port ${config.oauth.port}`));
+  server.listen(config.oauth.port, () => console.log(`Web server listening on port ${config.oauth.port}`));
   return server;
 }

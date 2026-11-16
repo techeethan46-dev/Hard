@@ -1,7 +1,6 @@
 // Offline tests: Roblox API responses are mocked, Discord objects are minimal fakes.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
 
 process.env.DISCORD_TOKEN = 'x';
 process.env.ROBLOX_GROUP_ID = '42';
@@ -24,16 +23,15 @@ globalThis.fetch = async (url, opts = {}) => {
   throw new Error('unexpected fetch ' + url);
 };
 
-let config, db, verify, roles, loadCommands;
+let config, store, verify, roles, loadCommands;
 before(async () => {
   ({ config } = await import('../src/config.js'));
   config.groupRankBindings = [
     { minRank: 1, maxRank: 254, roleId: 'r-member' },
     { minRank: 200, maxRank: 255, roleId: 'r-staff' },
   ];
-  ({ db } = await import('../src/lib/store.js'));
-  db.path = mkdtempSync('/tmp/botdb-') + '/db.json'; // don't touch real data
-  db.data = { links: {}, pending: {}, warnings: {} };
+  const s = await import('../src/lib/store.js');
+  store = await s.initStore({ jsonPath: null }); // in-memory, never touches real data
   verify = await import('../src/commands/verify.js');
   roles = await import('../src/lib/roles.js');
   ({ loadCommands } = await import('../src/lib/loader.js'));
@@ -93,7 +91,7 @@ test('full verify flow: wrong code is rejected, right code links and syncs roles
 
   const i1 = fakeInteraction(m, { username: 'BuilderMan' });
   await verify.execute(i1);
-  const pending = db.data.pending.u1;
+  const pending = await store.pending.get('u1');
   assert.equal(pending.robloxId, 1001);
   assert.match(pending.code, /^(\w+ ){5}\w+$/);
 
@@ -101,15 +99,15 @@ test('full verify flow: wrong code is rejected, right code links and syncs roles
   const i2 = fakeInteraction(m, { customId: 'verify:check' });
   await verify.handleButton(i2);
   assert.equal(i2.calls.at(-1).kind, 'followUp');
-  assert.ok(!db.data.links.u1);
+  assert.ok(!(await store.links.get('u1')));
 
   // Code present (with odd casing/spacing, as people paste it)
   profiles[1001].description = `hi!  ${pending.code.toUpperCase().replace(/ /g, '   ')} bye`;
   const i3 = fakeInteraction(m, { customId: 'verify:check' });
   await verify.handleButton(i3);
   assert.match(lastText(i3), /Verified!/);
-  assert.equal(db.data.links.u1.robloxId, 1001);
-  assert.ok(!db.data.pending.u1);
+  assert.equal((await store.links.get('u1')).robloxId, 1001);
+  assert.ok(!(await store.pending.get('u1')));
   assert.deepEqual([...m.held].sort(), ['r-member', 'r-staff', 'r-verified']);
   assert.equal(m.nickname, 'Builder (@builderman)');
 });
@@ -125,11 +123,11 @@ test('demotion in the group removes the staff role on resync', async () => {
 
 test('expired code is refused', async () => {
   const m = fakeMember('u2');
-  db.data.pending.u2 = { robloxId: 1001, username: 'builderman', code: 'a b c', expiresAt: Date.now() - 1 };
+  await store.pending.set('u2', { robloxId: 1001, username: 'builderman', code: 'a b c', expiresAt: Date.now() - 1 });
   const i = fakeInteraction(m, { customId: 'verify:check' });
   await verify.handleButton(i);
   assert.match(lastText(i), /expired/);
-  assert.ok(!db.data.links.u2);
+  assert.ok(!(await store.links.get('u2')));
 });
 
 test('roles above the bot are reported, not crashed on', async () => {

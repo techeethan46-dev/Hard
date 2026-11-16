@@ -3,7 +3,7 @@ import {
   PermissionFlagsBits, SlashCommandBuilder, TextInputBuilder, TextInputStyle, time,
 } from 'discord.js';
 import { config } from '../config.js';
-import { db } from '../lib/store.js';
+import { store } from '../lib/store.js';
 import { buildTranscript } from '../lib/transcript.js';
 import { colors, embed } from '../lib/ui.js';
 
@@ -36,7 +36,7 @@ const ephemeral = (interaction, text, color = colors.bad) => {
 };
 
 export async function execute(interaction) {
-  const ticket = db.data.tickets[interaction.channelId];
+  const ticket = await store.tickets.get(interaction.channelId);
   if (!ticket) return ephemeral(interaction, 'This command only works inside a ticket channel.');
   const sub = interaction.options.getSubcommand();
 
@@ -62,14 +62,15 @@ export async function handleButton(interaction) {
   const [, action, typeId] = interaction.customId.split(':');
   if (action === 'open') return showForm(interaction, typeId);
 
-  const ticket = db.data.tickets[interaction.channelId];
+  const ticket = await store.tickets.get(interaction.channelId);
   if (!ticket) return ephemeral(interaction, 'This ticket no longer exists.');
 
   if (action === 'claim') {
     if (!isStaff(interaction.member)) return ephemeral(interaction, 'Only staff can claim tickets.');
-    if (ticket.claimedBy) return ephemeral(interaction, `Already claimed by <@${ticket.claimedBy}>.`);
-    ticket.claimedBy = interaction.user.id;
-    db.save();
+    if (!(await store.tickets.claim(interaction.channelId, interaction.user.id))) {
+      const current = await store.tickets.get(interaction.channelId);
+      return ephemeral(interaction, `Already claimed by <@${current?.claimedBy}>.`);
+    }
     await interaction.update({ components: [controls(true)] });
     return interaction.channel.send({ embeds: [embed(colors.ok).setDescription(`${interaction.user} has claimed this ticket and will help you.`)] });
   }
@@ -95,13 +96,12 @@ async function showForm(interaction, typeId) {
   if (!type) return ephemeral(interaction, 'This ticket type no longer exists. Ask staff to repost the panel.');
   if (!config.channels.ticketCategory) return ephemeral(interaction, 'Tickets are not set up yet (TICKET_CATEGORY_ID is missing).');
 
-  const existing = Object.entries(db.data.tickets).find(([, t]) => t.ownerId === interaction.user.id);
+  const existing = await store.tickets.findByOwner(interaction.user.id);
   if (existing) {
-    if (interaction.guild.channels.cache.has(existing[0])) {
-      return ephemeral(interaction, `You already have an open ticket: <#${existing[0]}>. Please use that one.`, colors.warn);
+    if (interaction.guild.channels.cache.has(existing.channelId)) {
+      return ephemeral(interaction, `You already have an open ticket: <#${existing.channelId}>. Please use that one.`, colors.warn);
     }
-    delete db.data.tickets[existing[0]]; // channel was deleted by hand; forget it
-    db.save();
+    await store.tickets.delete(existing.channelId); // channel was deleted by hand; forget it
   }
 
   const questions = (type.questions?.length ? type.questions : [{ label: 'How can we help?', style: 'paragraph', required: true }]).slice(0, 5);
@@ -124,7 +124,7 @@ export async function handleModal(interaction) {
   opening.add(interaction.user.id);
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const number = ++db.data.ticketCounter;
+    const number = await store.tickets.nextNumber();
     const me = interaction.guild.members.me;
 
     const channel = await interaction.guild.channels.create({
@@ -140,11 +140,10 @@ export async function handleModal(interaction) {
       ],
     });
 
-    db.data.tickets[channel.id] = { number, ownerId: interaction.user.id, type: type.id, claimedBy: null, openedAt: Date.now() };
-    db.save();
+    await store.tickets.create(channel.id, { number, ownerId: interaction.user.id, type: type.id, claimedBy: null, openedAt: Date.now() });
 
     const questions = type.questions?.length ? type.questions : [{ label: 'How can we help?' }];
-    const link = db.data.links[interaction.user.id];
+    const link = await store.links.get(interaction.user.id);
     const e = embed()
       .setTitle(`${type.emoji ?? ''} ${type.label} — #${number}`.trim())
       .setDescription(`Thanks ${interaction.user}! Staff will be with you soon. Add any screenshots or videos here.`)
@@ -167,9 +166,8 @@ export async function handleModal(interaction) {
 
 async function closeTicket(interaction, reason) {
   const channel = interaction.channel;
-  const ticket = db.data.tickets[channel.id];
-  if (!ticket || ticket.closing) return ephemeral(interaction, 'This ticket is already closing.', colors.warn);
-  ticket.closing = true;
+  const ticket = await store.tickets.startClosing(channel.id); // atomic, so two people pressing Close can't both run this
+  if (!ticket) return ephemeral(interaction, 'This ticket is already closing.', colors.warn);
 
   if (interaction.isButton()) await interaction.update({ embeds: [embed(colors.warn).setDescription('Closing…')], components: [] });
   else await interaction.deferReply();
@@ -205,8 +203,7 @@ async function closeTicket(interaction, reason) {
   }
 
   await channel.send({ embeds: [embed(colors.bad).setDescription('This ticket will be deleted in 5 seconds.')] });
-  delete db.data.tickets[channel.id];
-  db.save();
+  await store.tickets.delete(channel.id);
   setTimeout(() => channel.delete(`Ticket closed by ${interaction.user.tag}`).catch(() => {}), 5000);
   if (interaction.deferred && !interaction.isButton()) await interaction.deleteReply().catch(() => {});
 }

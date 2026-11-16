@@ -19,8 +19,8 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 
 const { oauthEnabled } = await import('../src/config.js');
-const { db } = await import('../src/lib/store.js');
-db.save = () => {};
+const { initStore } = await import('../src/lib/store.js');
+const store = await initStore({ jsonPath: null });
 const { createAuthUrl } = await import('../src/lib/oauth.js');
 const { handleCallback } = await import('../src/web/server.js');
 
@@ -53,7 +53,7 @@ test('callback links the account, gives roles, and the link only works once', as
   const [status, html] = await handleCallback(client, new URLSearchParams({ state, code: 'abc' }));
   assert.equal(status, 200);
   assert.match(html, /verified/);
-  assert.equal(db.data.links.d1.robloxId, 1001);
+  assert.equal((await store.links.get('d1')).robloxId, 1001);
   assert.ok(held.has('r-verified'));
   assert.equal(member.nickname, 'Builder (@builderman)');
   assert.equal(done.username, 'builderman');
@@ -68,8 +68,8 @@ test('callback links the account, gives roles, and the link only works once', as
 
 test('forged state or cancelled sign-in does nothing', async () => {
   const { client } = fakeClient();
-  delete db.data.links.d1;
+  await store.links.delete('d1');
   assert.equal((await handleCallback(client, new URLSearchParams({ state: 'fake', code: 'x' })))[0], 400);
   assert.equal((await handleCallback(client, new URLSearchParams({ error: 'access_denied' })))[0], 400);
-  assert.ok(!db.data.links.d1);
+  assert.ok(!(await store.links.get('d1')));
 });

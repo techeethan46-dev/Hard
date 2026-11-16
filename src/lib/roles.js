@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { getGroupRole, getUser } from './roblox.js';
-import { db } from './store.js';
+import { store } from './store.js';
 
 export function formatNickname(user) {
   return config.nicknameFormat
@@ -14,7 +14,7 @@ export function formatNickname(user) {
  * Returns a summary of what changed (and what couldn't be changed).
  */
 export async function syncMember(member) {
-  const link = db.data.links[member.id];
+  const link = await store.links.get(member.id);
   const result = { added: [], removed: [], nickname: null, groupRole: null, errors: [] };
   const me = member.guild.members.me;
 

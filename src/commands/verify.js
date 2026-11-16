@@ -6,7 +6,7 @@ import { randomInt } from 'node:crypto';
 import { oauthEnabled } from '../config.js';
 import { createAuthUrl } from '../lib/oauth.js';
 import { getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
-import { db } from '../lib/store.js';
+import { store } from '../lib/store.js';
 import { linkAccount } from '../lib/verification.js';
 import { colors, embed } from '../lib/ui.js';
 
@@ -57,13 +57,13 @@ async function start(interaction) {
     return interaction.showModal(modal);
   }
 
+  const linked = await store.links.get(interaction.user.id);
   const url = createAuthUrl({
     discordId: interaction.user.id,
     guildId: interaction.guildId,
     // Update this ephemeral message once they finish signing in (the token is valid for 15 minutes).
     onDone: (roblox, result) => interaction.editReply({ embeds: [verifiedEmbed(roblox.username, result)], components: [] }),
   });
-  const linked = db.data.links[interaction.user.id];
   const e = embed()
     .setTitle('Verify with Roblox')
     .setDescription(
@@ -86,7 +86,7 @@ async function startCodeFlow(interaction, username) {
     return interaction.editReply({ embeds: [embed(colors.bad).setDescription('No Roblox user has that username.')] });
   }
 
-  const existing = db.data.links[interaction.user.id];
+  const existing = await store.links.get(interaction.user.id);
   if (existing?.robloxId === user.id) {
     return interaction.editReply({
       embeds: [embed(colors.ok).setDescription(`You're already linked to **${user.name}**. Use \`/update\` to refresh your roles.`)],
@@ -94,8 +94,7 @@ async function startCodeFlow(interaction, username) {
   }
 
   const code = makeCode();
-  db.data.pending[interaction.user.id] = { robloxId: user.id, username: user.name, code, expiresAt: Date.now() + CODE_TTL_MS };
-  db.save();
+  await store.pending.set(interaction.user.id, { robloxId: user.id, username: user.name, code, expiresAt: Date.now() + CODE_TTL_MS });
 
   const e = embed()
     .setTitle(`Verify as ${user.displayName} (@${user.name})`)
@@ -117,10 +116,9 @@ async function startCodeFlow(interaction, username) {
 }
 
 async function checkCode(interaction) {
-  const pending = db.data.pending[interaction.user.id];
+  const pending = await store.pending.get(interaction.user.id);
   if (!pending || pending.expiresAt < Date.now()) {
-    delete db.data.pending[interaction.user.id];
-    db.save();
+    await store.pending.delete(interaction.user.id);
     return interaction.update({
       embeds: [embed(colors.bad).setDescription('That code expired. Run `/verify` again to get a new one.')],
       components: [],

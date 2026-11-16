@@ -1,5 +1,5 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { db } from '../lib/store.js';
+import { store } from '../lib/store.js';
 import { syncMember } from '../lib/roles.js';
 import { colors, embed } from '../lib/ui.js';
 
@@ -14,7 +14,7 @@ export async function execute(interaction) {
     return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.bad).setDescription('Only staff can update other members.')] });
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const linked = db.data.links[target.id];
+  const linked = await store.links.get(target.id);
   const r = await syncMember(target);
 
   const fmt = (ids) => ids.map((id) => `<@&${id}>`).join(', ') || 'none';

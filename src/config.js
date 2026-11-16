@@ -21,7 +21,8 @@ export const config = {
   oauth: {
     clientId: env('ROBLOX_OAUTH_CLIENT_ID'),
     clientSecret: env('ROBLOX_OAUTH_CLIENT_SECRET'),
-    publicUrl: env('PUBLIC_URL')?.replace(/\/+$/, '') ?? null,
+    // Render sets RENDER_EXTERNAL_URL automatically (e.g. https://my-bot.onrender.com).
+    publicUrl: (env('PUBLIC_URL') ?? env('RENDER_EXTERNAL_URL'))?.replace(/\/+$/, '') ?? null,
     port: Number(env('PORT')) || 3000,
   },
   roles: {

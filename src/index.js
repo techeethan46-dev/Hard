@@ -1,6 +1,8 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { readdirSync } from 'node:fs';
-import { config, oauthEnabled, requireConfig } from './config.js';
+import { config, requireConfig } from './config.js';
+import { closeStore, initStore } from './lib/store.js';
+import { startWebServer } from './web/server.js';
 import { loadCommands } from './lib/loader.js';
 
 requireConfig('token');
@@ -11,6 +13,7 @@ const client = new Client({
   partials: [Partials.GuildMember],
 });
 
+await initStore();
 const commands = await loadCommands();
 const eventsDir = new URL('./events/', import.meta.url);
 for (const file of readdirSync(eventsDir).filter((f) => f.endsWith('.js'))) {
@@ -20,8 +23,17 @@ for (const file of readdirSync(eventsDir).filter((f) => f.endsWith('.js'))) {
 }
 
 process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
+// Always on: Render needs an open port, and it serves the health check + Roblox sign-in callback.
+const server = startWebServer(client);
 await client.login(config.token);
-if (oauthEnabled()) {
-  const { startWebServer } = await import('./web/server.js');
-  startWebServer(client);
+
+// Render sends SIGTERM before replacing the bot on each deploy.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, async () => {
+    console.log(`${signal} received, shutting down`);
+    server.close();
+    await client.destroy();
+    await closeStore();
+    process.exit(0);
+  });
 }

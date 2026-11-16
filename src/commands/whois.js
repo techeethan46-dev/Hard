@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, time } from 'discord.js';
 import { config } from '../config.js';
 import { getGroupRole, getHeadshotUrl, getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
-import { db } from '../lib/store.js';
+import { store } from '../lib/store.js';
 import { colors, embed } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
@@ -18,11 +18,11 @@ export async function execute(interaction) {
 
   if (username) {
     robloxId = (await getUserByUsername(username))?.id;
-    discordId = Object.entries(db.data.links).find(([, l]) => l.robloxId === robloxId)?.[0];
+    discordId = robloxId && (await store.links.findDiscordId(robloxId));
   } else {
     const member = interaction.options.getUser('member') ?? interaction.user;
     discordId = member.id;
-    robloxId = db.data.links[member.id]?.robloxId;
+    robloxId = (await store.links.get(member.id))?.robloxId;
     if (!robloxId) {
       return interaction.editReply({ embeds: [embed(colors.warn).setDescription(`${member} hasn't verified a Roblox account.`)] });
     }

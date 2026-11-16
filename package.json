@@ -10,11 +10,12 @@
     "test": "node --test test/*.test.js"
   },
   "engines": {
-    "node": ">=18.17"
+    "node": ">=20.19"
   },
   "license": "MIT",
   "dependencies": {
     "discord.js": "^14.28.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "mongodb": "^7.9.0"
   }
 }
