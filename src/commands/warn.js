@@ -1,8 +1,8 @@
-import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { randomUUID } from 'node:crypto';
 import { store } from '../lib/store.js';
 import { checkTarget, notify } from '../lib/moderation.js';
-import { colors, embed, modLog } from '../lib/ui.js';
+import { modLog, notice } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('warn')
@@ -18,11 +18,8 @@ export async function execute(interaction) {
 
   const total = await store.warnings.add(interaction.guildId, target.id, { id: randomUUID().slice(0, 8), reason, moderatorId: interaction.user.id, at: Date.now() });
 
-  await notify(target.user, interaction.guild, `You were warned: **${reason}**`);
+  await notify(target.user, interaction.guild, { kind: 'warn', title: 'You received a warning', reason, extra: `This is warning **#${total}**.` });
   await modLog(interaction.guild, { action: 'Warn', target: target.user, moderator: interaction.user, reason,
     extra: { name: 'Total warnings', value: String(total) } });
-  return interaction.reply({
-    flags: MessageFlags.Ephemeral,
-    embeds: [embed(colors.ok).setDescription(`Warned ${target}. They now have **${total}** warning(s).`)],
-  });
+  return interaction.reply(notice('ok', `${target} now has **${total}** warning${total === 1 ? '' : 's'}.\n-# Reason: ${reason}`, { title: 'Warning given' }));
 }

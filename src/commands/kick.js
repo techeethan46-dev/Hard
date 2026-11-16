@@ -1,6 +1,6 @@
-import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { checkTarget, notify } from '../lib/moderation.js';
-import { colors, embed, modLog } from '../lib/ui.js';
+import { modLog, notice } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('kick')
@@ -14,8 +14,8 @@ export async function execute(interaction) {
   const reason = interaction.options.getString('reason') ?? 'No reason given';
   if (!(await checkTarget(interaction, target, 'kick'))) return;
 
-  await notify(target.user, interaction.guild, `You were kicked: **${reason}**`);
+  await notify(target.user, interaction.guild, { kind: 'bad', title: 'You were kicked', reason });
   await target.kick(`${interaction.user.tag}: ${reason}`);
-  await modLog(interaction.guild, { action: 'Kick', target: target.user, moderator: interaction.user, reason, color: colors.bad });
-  return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.ok).setDescription(`Kicked ${target.user.tag}.`)] });
+  await modLog(interaction.guild, { action: 'Kick', target: target.user, moderator: interaction.user, reason });
+  return interaction.reply(notice('ok', `**${target.user.tag}** was removed from the server.\n-# Reason: ${reason}`, { title: 'Kicked' }));
 }

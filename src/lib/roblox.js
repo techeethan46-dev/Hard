@@ -61,5 +61,14 @@ export async function getGameIconUrl(universeId) {
   return json?.data?.[0]?.imageUrl ?? null;
 }
 
+/** Wide banner screenshot of the game (first thumbnail set by the developer). */
+export async function getGameBannerUrl(universeId) {
+  const json = await request(
+    `https://thumbnails.roblox.com/v1/games/multiget/thumbnails?universeIds=${universeId}&countPerUniverse=1&defaults=true&size=768x432&format=Png&isCircular=false`,
+    { ttl: 60 * 60_000 },
+  );
+  return json?.data?.[0]?.thumbnails?.[0]?.imageUrl ?? null;
+}
+
 export const profileUrl = (userId) => `https://www.roblox.com/users/${userId}/profile`;
 export const gameUrl = (placeId) => `https://www.roblox.com/games/${placeId}`;

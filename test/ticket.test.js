@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, PermissionFlagsBits } from 'discord.js';
+import { customIds, isV2, textOf } from './helpers.js';
 
 process.env.DISCORD_TOKEN = 'x';
 
@@ -14,7 +15,7 @@ const logSent = [];
 const dms = [];
 const channels = new Map();
 const guild = {
-  id: 'g1', name: 'Test Server',
+  id: 'g1', name: 'Test Server', iconURL: () => 'https://cdn.example/icon.png',
   roles: { everyone: { id: 'g1' } },
   members: { me: { id: 'bot' } },
   channels: {
@@ -50,9 +51,10 @@ function interaction(user, extra = {}) {
   const calls = [];
   const rec = (kind) => async (p) => { calls.push({ kind, p }); };
   return {
-    calls, guild, guildId: 'g1', memberPermissions: { has: () => false }, user: { id: user.id, tag: `${user.id}#0`, toString: () => `<@${user.id}>` },
+    calls, guild, guildId: 'g1', memberPermissions: { has: () => false },
+    user: { id: user.id, tag: `${user.id}#0`, toString: () => `<@${user.id}>`, displayAvatarURL: () => 'https://cdn.example/a.png' },
     member: user,
-    client: { users: { fetch: async (id) => ({ send: async (m) => dms.push({ id, m }) }) } },
+    client: { users: { fetch: async (id) => ({ send: async (m) => dms.push({ id, m }), displayAvatarURL: () => 'https://cdn.example/a.png' }) } },
     isButton: () => Boolean(extra.button), deferred: false, replied: false,
     reply: rec('reply'), deferReply: async (p) => { calls.push({ kind: 'deferReply', p }); }, editReply: rec('editReply'),
     followUp: rec('followUp'), update: rec('update'), showModal: rec('showModal'), deleteReply: rec('deleteReply'),
@@ -67,7 +69,8 @@ test('ticket panel has one button per configured type', async () => {
     channel: { send: async (m) => posted.push(m), toString: () => '#help' },
   });
   await panel.execute(i);
-  const ids = posted[0].components.flatMap((r) => r.toJSON().components.map((c) => c.custom_id));
+  assert.ok(isV2(posted[0]));
+  const ids = customIds(posted[0]);
   assert.deepEqual(ids, ['ticket:open:support', 'ticket:open:report', 'ticket:open:bug', 'ticket:open:purchase']);
 });
 
@@ -91,9 +94,11 @@ test('open -> form -> private channel -> claim -> close with transcript', async 
   assert.deepEqual(everyone.deny, [PermissionFlagsBits.ViewChannel]);
   assert.ok(ch.opts.permissionOverwrites.some((o) => o.id === 'p1'));
   assert.ok(ch.opts.permissionOverwrites.some((o) => o.id === 'support'));
-  const fields = ch.sent[0].embeds[0].toJSON().fields;
-  assert.ok(fields.some((f) => f.value === 'BadGuy123'));
-  assert.ok(fields.some((f) => f.value === '—')); // optional evidence left blank
+  const card = textOf(ch.sent[0]);
+  assert.match(card, /<@p1>/); // pings the member
+  assert.match(card, /> BadGuy123/);
+  assert.match(card, /No answer/); // optional evidence left blank
+  assert.deepEqual(ch.sent[0].allowedMentions, { users: ['p1'], roles: ['support'] });
   assert.equal((await store.tickets.get(ch.id)).ownerId, 'p1');
 
   // 3. A second ticket from the same member is refused
@@ -108,6 +113,9 @@ test('open -> form -> private channel -> claim -> close with transcript', async 
   const staff = interaction(member('s1', { staff: true }), { customId: 'ticket:claim', button: true, channelId: ch.id, channel: ch });
   await ticket.handleButton(staff);
   assert.equal((await store.tickets.get(ch.id)).claimedBy, 's1');
+  const claimedCard = staff.calls[0].p;
+  assert.match(textOf(claimedCard), /<@s1> is helping you/);
+  assert.ok(isV2(claimedCard));
 
   // 5. Owner closes: transcript to log channel + DM, channel deleted
   const close = interaction(player, { customId: 'ticket:confirmclose', button: true, channelId: ch.id, channel: ch });

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionFlagsBits, PermissionsBitField } from 'discord.js';
+import { buttonLabels, customIds, isV2, json, textOf } from './helpers.js';
 
 process.env.DISCORD_TOKEN = 'x';
 globalThis.fetch = async (url) => {
@@ -20,7 +21,7 @@ const { STEPS, render, checks } = setup;
 const ALL = new PermissionsBitField(PermissionsBitField.All);
 const role = (id, position) => ({ id, name: id, position });
 const guild = {
-  id: 'g1',
+  id: 'g1', name: 'Test Server', iconURL: () => 'https://cdn.example/icon.png',
   roles: { cache: new Map([['verified', role('verified', 1)], ['staff', role('staff', 2)], ['owner', role('owner', 50)]]) },
   channels: { cache: new Map([['welcome', { id: 'welcome', permissionsFor: () => ALL }], ['cat', { id: 'cat', permissionsFor: () => ALL }]]) },
   members: { me: { roles: { highest: { position: 10 } }, permissions: ALL } },
@@ -36,13 +37,13 @@ function i(customId, extra = {}) {
     ...extra,
   };
 }
-const desc = (call) => call.p.embeds[0].toJSON().description;
-const customIds = (msg) => msg.components.flatMap((r) => r.toJSON().components.map((c) => c.custom_id).filter(Boolean));
+const desc = (call) => textOf(call.p);
 
 test('every step and the overview render valid Discord components with unique IDs', async () => {
   for (let step = 0; step <= STEPS.length; step++) {
     const msg = await render(guild, step);
-    msg.components.forEach((r) => r.toJSON());
+    assert.ok(isV2(msg));
+    json(msg); // throws if Discord would reject a component
     const ids = customIds(msg);
     assert.equal(new Set(ids).size, ids.length, `duplicate button ID on step ${step}`);
   }
@@ -52,13 +53,14 @@ test('/setup starts at step 1 on a fresh server', async () => {
   const x = i(undefined);
   await setup.execute(x);
   assert.match(desc(x.calls[0]), /Verified role/);
-  assert.match(x.calls[0].p.embeds[0].toJSON().title, /Step 1 of/);
+  assert.match(desc(x.calls[0]), /STEP 1 OF/);
+  assert.ok(x.calls[0].p.flags & 64, 'ephemeral');
 });
 
 test('steps have Back / Next / Clear only (no Overview button)', async () => {
   for (let step = 0; step < STEPS.length; step++) {
     const msg = await render(guild, step);
-    const labels = msg.components.at(-1).toJSON().components.map((c) => c.label);
+    const labels = buttonLabels(msg).filter((l) => ['Back', 'Next', 'Clear', 'Overview'].includes(l));
     assert.deepEqual(labels, ['Back', 'Next', 'Clear']);
   }
   assert.ok(!STEPS.some((s) => /group/i.test(s.title)));
@@ -68,7 +70,7 @@ test('picking a role saves it and moves to the next step', async () => {
   const x = i('setup:set:0', { values: ['verified'] });
   await setup.handleSelect(x);
   assert.equal((await getSettings('g1')).verifiedRole, 'verified');
-  assert.match(x.calls[0].p.embeds[0].toJSON().title, /Step 2 of/);
+  assert.match(desc(x.calls[0]), /STEP 2 OF/);
 });
 
 test('game link is checked with Roblox and saved with its name', async () => {
@@ -102,5 +104,5 @@ test('only Manage Server members can use the menus', async () => {
   const x = i('setup:clear:0', { memberPermissions: new PermissionsBitField(0n) });
   await setup.handleButton(x);
   assert.equal(x.calls[0].kind, 'reply');
-  assert.match(x.calls[0].p.content, /Manage Server/);
+  assert.match(textOf(x.calls[0].p), /Manage Server/);
 });

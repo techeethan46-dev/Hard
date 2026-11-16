@@ -1,6 +1,6 @@
-import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { checkTarget, notify } from '../lib/moderation.js';
-import { colors, embed, modLog } from '../lib/ui.js';
+import { modLog, notice } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('ban')
@@ -25,20 +25,20 @@ export async function execute(interaction) {
   if (interaction.options.getSubcommand() === 'remove') {
     const id = interaction.options.getString('user_id', true);
     const user = await interaction.guild.bans.remove(id, `${interaction.user.tag}: ${reason}`).catch(() => null);
-    if (!user) return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.bad).setDescription("That user isn't banned.")] });
-    await modLog(interaction.guild, { action: 'Unban', target: user, moderator: interaction.user, reason, color: colors.ok });
-    return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.ok).setDescription(`Unbanned ${user.tag}.`)] });
+    if (!user) return interaction.reply(notice('bad', "That user isn't banned."));
+    await modLog(interaction.guild, { action: 'Unban', target: user, moderator: interaction.user, reason });
+    return interaction.reply(notice('ok', `**${user.tag}** can join again.`, { title: 'Unbanned' }));
   }
 
   const user = interaction.options.getUser('user', true);
   const member = interaction.options.getMember('user');
   // Users who already left can still be banned; only check hierarchy for current members.
   if (member && !(await checkTarget(interaction, member, 'ban'))) return;
-  if (member) await notify(user, interaction.guild, `You were banned: **${reason}**`);
+  if (member) await notify(user, interaction.guild, { kind: 'bad', title: 'You were banned', reason });
   await interaction.guild.bans.create(user.id, {
     reason: `${interaction.user.tag}: ${reason}`,
     deleteMessageSeconds: interaction.options.getInteger('delete_messages') ?? 0,
   });
-  await modLog(interaction.guild, { action: 'Ban', target: user, moderator: interaction.user, reason, color: colors.bad });
-  return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.ok).setDescription(`Banned ${user.tag}.`)] });
+  await modLog(interaction.guild, { action: 'Ban', target: user, moderator: interaction.user, reason });
+  return interaction.reply(notice('ok', `**${user.tag}** is banned.\n-# Reason: ${reason}`, { title: 'Banned' }));
 }
