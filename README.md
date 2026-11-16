@@ -46,6 +46,12 @@ Every pick saves instantly. After the last step, a summary page shows everything
 | 🎉 Level-up channel | Where level-up messages go (otherwise the channel they chatted in) |
 | 🎁 Level rewards | Pick a role and the level that unlocks it |
 | 🕛 Streak timezone | When a "day" ends for chat streaks (default UTC) |
+| 🧾 Server log channel | Message deletes/edits, joins/leaves, role/nickname changes, bans |
+| 🤖 AutoMod filters | Which rules are on (spam, invites, scams, mass mentions, blocked words, links, caps) |
+| 🤬 Blocked words | Your list of words AutoMod removes |
+| 🛡️ AutoMod exempt roles | Roles AutoMod ignores (staff are always exempt) |
+| 🚨 Raid protection | Off / Normal / Strict |
+| 👶 Minimum account age | Kick accounts younger than this when they join |
 
 The summary page also runs checks and tells you what to fix in plain words, like "drag the bot's role above
 @Verified" or "the bot can't post in #mod-log".
@@ -66,6 +72,7 @@ Skip any step you don't need; that feature just stays off.
 | `/leaderboard` | Everyone | Top 10 by level or by streak (buttons to switch) |
 | `/streak` | Everyone | Your streak, restores left, and a Restore button when it broke |
 | `/xp set-level/give/reset` | Admins | Adjust someone's level, XP or streak |
+| `/raidmode on/off/status` | Admins | Turn raid mode on or off by hand |
 | `/suggest idea` | Everyone | Posts an idea with 👍/👎 and a discussion thread |
 | Ticket buttons, `/ticket close` | Everyone | Opens a private support channel |
 | `/ticket add/remove member` | Support staff | Brings someone into a ticket |
@@ -88,6 +95,27 @@ automatically.
 - Everyone gets **3 restores per calendar month**.
 - Days follow the timezone chosen in `/setup`.
 - The bot can't rename the server owner or anyone whose role is above the bot's, so they won't get a badge.
+
+## AutoMod, raid protection and logs
+
+**AutoMod** deletes rule-breaking messages, shows the member a short warning that disappears, and logs it to the
+mod log. Spam gets an instant 5-minute timeout; for other rules, the 3rd hit within 10 minutes means a 10-minute
+timeout. Anyone who can manage messages is never filtered. Filters:
+- **Spam**: 6+ messages in 6 seconds, or the same message 3 times in 30 seconds (the whole burst is removed)
+- **Discord invites**, **scam links** (fake Nitro/Robux bait and look-alike Discord/Roblox/Steam sites like
+  `dlscord.gift` or `roblox.com.ge`), **mass mentions** (5+), **blocked words** (catches `b4dw0rd`-style tricks)
+- Off by default: **all links**, **excessive caps**
+
+**Raid protection**: if 10 people (5 on Strict) join within 30 seconds, raid mode turns on. Accounts younger
+than 30 days are kicked with a polite DM, staff get an alert with an **End raid mode** button, and it switches
+off by itself after 10 quiet minutes. `/raidmode` turns it on or off by hand. Separately, **Minimum account age**
+kicks very new accounts at any time.
+
+**Server logs** go to the Server log channel: deleted messages (with text and file names), edits (before/after
+with a jump button), bulk deletes (as a text file), joins (flags accounts under 7 days), leaves (with their roles),
+nickname changes (the 🔥 streak badge is ignored), role changes, timeouts, bans and unbans.
+
+These need **Message Content Intent** turned on in the Developer Portal (Bot tab).
 
 ## Verification
 

@@ -9,9 +9,14 @@ requireConfig('token');
 
 const client = new Client({
   // GuildMembers is a privileged intent: enable "Server Members Intent" in the Developer Portal (Bot tab).
-  // GuildMessages lets the bot see that someone chatted (for XP and streaks). It doesn't read message text.
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages],
-  partials: [Partials.GuildMember],
+  // GuildMembers and MessageContent are "privileged": turn both on in the Developer Portal (Bot tab).
+  // MessageContent is needed for AutoMod and message logs; GuildModeration for ban logs.
+  intents: [
+    GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent, GatewayIntentBits.GuildModeration,
+  ],
+  // Lets delete/edit logs fire for messages sent before the bot started.
+  partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.User],
 });
 
 await initStore();
