@@ -11,7 +11,10 @@ const sent = [];
 globalThis.fetch = async (url, opts = {}) => {
   sent.push({ url: String(url), opts });
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
-  if (String(url).endsWith('/oauth/v1/token')) return ok({ access_token: 'tok' });
+  if (String(url).endsWith('/oauth/v1/token')) {
+    const payload = Buffer.from(JSON.stringify({ sub: '1001' })).toString('base64url');
+    return ok({ access_token: 'tok', id_token: `x.${payload}.sig` });
+  }
   if (String(url).endsWith('/oauth/v1/userinfo')) return ok({ sub: '1001', preferred_username: 'builderman', nickname: 'Builder' });
   if (String(url).includes('users.roblox.com/v1/users/1001')) return ok({ id: 1001, name: 'builderman', displayName: 'Builder' });
   throw new Error('unexpected ' + url);
@@ -41,7 +44,7 @@ test('OAuth is enabled and builds a PKCE sign-in URL', () => {
   assert.equal(url.origin + url.pathname, 'https://apis.roblox.com/oauth/v1/authorize');
   assert.equal(url.searchParams.get('redirect_uri'), 'https://bot.example.com/oauth/callback');
   assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
-  assert.equal(url.searchParams.get('scope'), 'openid profile');
+  assert.equal(url.searchParams.get('scope'), 'openid');
 });
 
 test('callback links the account, gives roles, and the link only works once', async () => {
