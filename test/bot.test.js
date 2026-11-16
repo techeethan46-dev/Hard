@@ -1,6 +1,7 @@
 // Offline tests: Roblox API responses are mocked, Discord objects are minimal fakes.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { textOf } from './helpers.js';
 
 process.env.DISCORD_TOKEN = 'x';
 
@@ -59,7 +60,7 @@ function fakeInteraction(member, options = {}) {
     followUp: rec('followUp'), update: rec('update'), reply: rec('reply'),
   };
 }
-const lastText = (i) => JSON.stringify(i.calls.at(-1).p);
+const lastText = (i) => textOf(i.calls.at(-1).p);
 
 test('every command builds valid slash-command JSON', async () => {
   const cmds = await loadCommands();
@@ -104,7 +105,7 @@ test('full verify flow: wrong code is rejected, right code links and syncs roles
   profiles[1001].description = `hi!  ${pending.code.toUpperCase().replace(/ /g, '   ')} bye`;
   const i3 = fakeInteraction(m, { customId: 'verify:check' });
   await verify.handleButton(i3);
-  assert.match(lastText(i3), /Verified!/);
+  assert.match(lastText(i3), /You're verified!/);
   assert.equal((await store.links.get('u1')).robloxId, 1001);
   assert.ok(!(await store.pending.get('u1')));
   assert.deepEqual([...m.held], ['r-verified']); // Unverified swapped for Verified

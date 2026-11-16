@@ -1,13 +1,11 @@
-import { MessageFlags } from 'discord.js';
-import { colors, embed } from './ui.js';
+import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from './ui.js';
 
 /**
  * Checks that the moderator outranks the target and the bot can act on them.
  * Replies with an error and returns false if not.
  */
 export async function checkTarget(interaction, target, action) {
-  const fail = (msg) =>
-    interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.bad).setDescription(msg)] }).then(() => false);
+  const fail = (msg) => interaction.reply(notice('bad', msg, { title: "Can't do that" })).then(() => false);
 
   if (!target) return fail('That user is not in this server.');
   if (target.id === interaction.user.id) return fail(`You can't ${action} yourself.`);
@@ -21,7 +19,13 @@ export async function checkTarget(interaction, target, action) {
   return true;
 }
 
-/** Best-effort DM; members with DMs closed are fine. */
-export async function notify(user, guild, text) {
-  await user.send({ embeds: [embed(colors.warn).setTitle(guild.name).setDescription(text)] }).catch(() => {});
+/** Best-effort DM to the member; members with DMs closed are fine. */
+export async function notify(user, guild, { kind = 'warn', title, reason, extra }) {
+  const msg = v2(card(colors[kind],
+    section([`-# ${guild.name}`, `### ${title}`], thumb(guild.iconURL({ size: 128 }))),
+    divider(),
+    text(`**Reason**\n> ${reason}`, extra ?? null),
+    footnote('If you think this was a mistake, contact the server staff.'),
+  ));
+  await user.send(msg).catch(() => {});
 }

@@ -1,6 +1,6 @@
-import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { checkTarget, notify } from '../lib/moderation.js';
-import { colors, embed, modLog } from '../lib/ui.js';
+import { modLog, notice } from '../lib/ui.js';
 
 const DURATIONS = [
   ['Remove timeout', 0], ['60 seconds', 60], ['5 minutes', 300], ['10 minutes', 600],
@@ -25,13 +25,11 @@ export async function execute(interaction) {
 
   const label = DURATIONS.find(([, v]) => v === seconds)?.[0] ?? `${seconds}s`;
   await target.timeout(seconds ? seconds * 1000 : null, `${interaction.user.tag}: ${reason}`);
-  if (seconds) await notify(target.user, interaction.guild, `You were timed out for **${label}**: ${reason}`);
+  if (seconds) await notify(target.user, interaction.guild, { kind: 'warn', title: `You were timed out for ${label}`, reason });
   await modLog(interaction.guild, {
     action: seconds ? `Timeout (${label})` : 'Timeout removed', target: target.user, moderator: interaction.user, reason,
-    color: seconds ? colors.warn : colors.ok,
   });
-  return interaction.reply({
-    flags: MessageFlags.Ephemeral,
-    embeds: [embed(colors.ok).setDescription(seconds ? `Timed out ${target} for ${label}.` : `Removed timeout from ${target}.`)],
-  });
+  return interaction.reply(seconds
+    ? notice('ok', `${target} can't chat for **${label}**.\n-# Ends <t:${Math.floor((Date.now() + seconds * 1000) / 1000)}:R>`, { title: 'Timed out' })
+    : notice('ok', `${target} can chat again.`, { title: 'Timeout removed' }));
 }

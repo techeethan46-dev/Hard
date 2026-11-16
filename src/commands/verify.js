@@ -5,10 +5,10 @@ import {
 import { randomInt } from 'node:crypto';
 import { oauthEnabled } from '../config.js';
 import { createAuthUrl } from '../lib/oauth.js';
-import { getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
+import { getHeadshotUrl, getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
 import { store } from '../lib/store.js';
 import { linkAccount } from '../lib/verification.js';
-import { colors, embed } from '../lib/ui.js';
+import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
 
 // Two ways to verify:
 //  1. "Sign in with Roblox" (OAuth) — one click + approve. Used when ROBLOX_OAUTH_* and PUBLIC_URL are set.
@@ -51,7 +51,7 @@ async function start(interaction) {
     const modal = new ModalBuilder().setCustomId('verify:modal').setTitle('Verify your Roblox account').addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('username').setLabel('Roblox username').setStyle(TextInputStyle.Short)
-          .setMinLength(3).setMaxLength(20).setRequired(true),
+          .setPlaceholder('e.g. builderman').setMinLength(3).setMaxLength(20).setRequired(true),
       ),
     );
     return interaction.showModal(modal);
@@ -62,91 +62,80 @@ async function start(interaction) {
     discordId: interaction.user.id,
     guildId: interaction.guildId,
     // Update this ephemeral message once they finish signing in (the token is valid for 15 minutes).
-    onDone: (roblox, result) => interaction.editReply({ embeds: [verifiedEmbed(roblox.username, result)], components: [] }),
+    onDone: async (roblox, result) => interaction.editReply(await verifiedCard(roblox.username, roblox.robloxId, result)),
   });
-  const e = embed()
-    .setTitle('Verify with Roblox')
-    .setDescription(
-      [
-        'Click **Sign in with Roblox**, log in if asked, and press **Confirm**. That\'s it — you\'ll get your roles right away.',
-        linked ? `\nYou're currently linked to **${linked.username}**. Signing in with another account will switch it.` : '',
-        '\n-# The link is just for you and expires in 10 minutes. We only see your username and avatar — never your password.',
-      ].join(''),
-    );
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setLabel('Sign in with Roblox').setStyle(ButtonStyle.Link).setURL(url),
-  );
-  return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [e], components: [row] });
+  return interaction.reply(v2(card(colors.roblox,
+    text(
+      '### 🔐 Sign in with Roblox',
+      'Press the button, log in if Roblox asks, then press **Confirm**. Your roles show up right away.',
+      linked ? `\n-# You're linked to **${linked.username}** now. Signing in with another account switches it.` : null,
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setLabel('Sign in with Roblox').setEmoji('🔗').setStyle(ButtonStyle.Link).setURL(url),
+    ),
+    footnote('This link is only for you and expires in 10 minutes · we never see your password'),
+  ), { ephemeral: true }));
 }
 
 async function startCodeFlow(interaction, username) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const user = await getUserByUsername(username);
   if (!user) {
-    return interaction.editReply({ embeds: [embed(colors.bad).setDescription('No Roblox user has that username.')] });
+    return interaction.editReply(notice('bad', `There's no Roblox account called **${username}**. Check the spelling and try again.`, { ephemeral: false }));
   }
 
   const existing = await store.links.get(interaction.user.id);
   if (existing?.robloxId === user.id) {
-    return interaction.editReply({
-      embeds: [embed(colors.ok).setDescription(`You're already linked to **${user.name}**. Use \`/update\` to refresh your roles.`)],
-    });
+    return interaction.editReply(notice('ok', `You're already linked to **${user.name}**. Use \`/update\` to refresh your roles.`, { ephemeral: false }));
   }
 
   const code = makeCode();
-  await store.pending.set(interaction.user.id, { robloxId: user.id, username: user.name, code, expiresAt: Date.now() + CODE_TTL_MS });
+  const expiresAt = Date.now() + CODE_TTL_MS;
+  await store.pending.set(interaction.user.id, { robloxId: user.id, username: user.name, code, expiresAt });
 
-  const e = embed()
-    .setTitle(`Verify as ${user.displayName} (@${user.name})`)
-    .setDescription(
-      [
-        '**1.** Copy this code:',
-        `\`\`\`${code}\`\`\``,
-        `**2.** Paste it anywhere in the **About** section of [your Roblox profile](${profileUrl(user.id)}) and save.`,
-        '**3.** Press **Done** below.',
-        '',
-        `You can delete the code from your profile once you're verified. This code expires <t:${Math.floor((Date.now() + CODE_TTL_MS) / 1000)}:R>.`,
-      ].join('\n'),
-    );
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('verify:check').setLabel('Done').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setLabel('Open profile').setStyle(ButtonStyle.Link).setURL(profileUrl(user.id)),
-  );
-  return interaction.editReply({ embeds: [e], components: [row] });
+  return interaction.editReply(v2(card(colors.roblox,
+    section([`### Verify as ${user.displayName}`, `-# @${user.name} · not you? run \`/verify\` again`],
+      thumb(await getHeadshotUrl(user.id).catch(() => null))),
+    divider(),
+    text('**1 · Copy this code**', `\`\`\`${code}\`\`\``),
+    text(`**2 · Paste it in your profile**`, `Open [your Roblox profile](${profileUrl(user.id)}), paste it anywhere in **About**, and save.`),
+    text('**3 · Press Done**'),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('verify:check').setLabel('Done').setEmoji('✅').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setLabel('Open profile').setEmoji('👤').setStyle(ButtonStyle.Link).setURL(profileUrl(user.id)),
+    ),
+    footnote(`Code expires <t:${Math.floor(expiresAt / 1000)}:R> · you can remove it from your profile afterwards`),
+  )));
 }
 
 async function checkCode(interaction) {
   const pending = await store.pending.get(interaction.user.id);
   if (!pending || pending.expiresAt < Date.now()) {
     await store.pending.delete(interaction.user.id);
-    return interaction.update({
-      embeds: [embed(colors.bad).setDescription('That code expired. Run `/verify` again to get a new one.')],
-      components: [],
-    });
+    return interaction.update(notice('bad', 'That code expired. Run `/verify` again to get a new one.', { title: 'Code expired', ephemeral: false }));
   }
 
   await interaction.deferUpdate();
   const profile = await getUser(pending.robloxId);
   const normalize = (s) => (s ?? '').toLowerCase().replace(/\s+/g, ' ');
   if (!normalize(profile?.description).includes(normalize(pending.code))) {
-    return interaction.followUp({
-      flags: MessageFlags.Ephemeral,
-      embeds: [
-        embed(colors.warn).setDescription(
-          "I couldn't find the code in your profile's About section yet. Make sure you saved it, wait a few seconds, then press **Done** again.",
-        ),
-      ],
-    });
+    return interaction.followUp(notice('warn',
+      "The code isn't in your profile's **About** yet. Make sure you pressed **Save** on Roblox, wait a few seconds, then press **Done** again.",
+      { title: 'Not found yet' }));
   }
 
   const result = await linkAccount(interaction.member, pending);
-  const e = verifiedEmbed(pending.username, result);
-  e.setDescription(`${e.data.description} You can remove the code from your profile.`);
-  return interaction.editReply({ embeds: [e], components: [] });
+  return interaction.editReply(await verifiedCard(pending.username, pending.robloxId, result, 'You can remove the code from your profile now.'));
 }
 
-function verifiedEmbed(username, result) {
-  const e = embed(colors.ok).setTitle('Verified!').setDescription(`Your Discord account is now linked to **${username}**.`);
-  if (result.errors.length) e.addFields({ name: 'Notes', value: result.errors.join('\n') });
-  return e;
+async function verifiedCard(username, robloxId, result, extra) {
+  const gained = result.added.map((id) => `➕ <@&${id}>`);
+  return v2(card(colors.ok,
+    section([`### 🎉 You're verified!`, `Linked to **${username}**`, ...(result.nickname ? [`-# Nickname set to ${result.nickname}`] : [])],
+      thumb(await getHeadshotUrl(robloxId).catch(() => null))),
+    gained.length || result.errors.length ? divider() : null,
+    gained.length ? text(gained) : null,
+    result.errors.length ? text(result.errors.map((e) => `⚠️ ${e}`)) : null,
+    footnote(extra ?? 'Welcome in! Use /update any time to refresh your roles.'),
+  ));
 }

@@ -1,7 +1,8 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { store } from '../lib/store.js';
 import { syncMember } from '../lib/roles.js';
-import { colors, embed } from '../lib/ui.js';
+import { getHeadshotUrl } from '../lib/roblox.js';
+import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('update')
@@ -11,21 +12,26 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction) {
   const target = interaction.options.getMember('member') ?? interaction.member;
   if (target.id !== interaction.user.id && !interaction.memberPermissions.has(PermissionFlagsBits.ManageRoles)) {
-    return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.bad).setDescription('Only staff can update other members.')] });
+    return interaction.reply(notice('bad', 'Only staff can update other members.'));
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const linked = await store.links.get(target.id);
   const r = await syncMember(target);
 
-  const fmt = (ids) => ids.map((id) => `<@&${id}>`).join(', ') || 'none';
-  const e = embed(r.errors.length ? colors.warn : colors.ok)
-    .setTitle(`Updated ${target.displayName}`)
-    .addFields(
-      { name: 'Roblox', value: linked ? linked.username : 'Not verified — use `/verify`', inline: true },
-      { name: 'Roles added', value: fmt(r.added) },
-      { name: 'Roles removed', value: fmt(r.removed) },
-    );
-  if (r.nickname) e.addFields({ name: 'Nickname', value: r.nickname });
-  if (r.errors.length) e.addFields({ name: 'Notes', value: r.errors.join('\n') });
-  return interaction.editReply({ embeds: [e] });
+  if (!linked) {
+    return interaction.editReply(notice('warn', `${target.id === interaction.user.id ? "You haven't" : `${target} hasn't`} linked a Roblox account yet. Use \`/verify\` first.`, { title: 'Not verified', ephemeral: false }));
+  }
+
+  const changes = [
+    ...r.added.map((id) => `➕ <@&${id}>`),
+    ...r.removed.map((id) => `➖ <@&${id}>`),
+    ...(r.nickname ? [`🏷️ Nickname → **${r.nickname}**`] : []),
+  ];
+  return interaction.editReply(v2(card(r.errors.length ? colors.warn : colors.ok,
+    section([`### 🔄 ${target.displayName} is up to date`, `Linked to **${linked.username}**`], thumb(await getHeadshotUrl(linked.robloxId).catch(() => null))),
+    divider(),
+    text(changes.length ? changes.join('\n') : '✨ Nothing needed changing.'),
+    r.errors.length ? [divider(), text(r.errors.map((e) => `⚠️ ${e}`))] : null,
+    footnote('Run this again after changing your Roblox name.'),
+  )));
 }

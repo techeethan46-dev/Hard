@@ -1,5 +1,5 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { colors, embed } from '../lib/ui.js';
+import { notice } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('purge')
@@ -17,5 +17,9 @@ export async function execute(interaction) {
   if (from) messages = messages.filter((m) => m.author.id === from.id);
   // Discord can't bulk-delete messages older than 14 days; `true` skips them.
   const deleted = await interaction.channel.bulkDelete([...messages.values()].slice(0, amount), true);
-  return interaction.editReply({ embeds: [embed(colors.ok).setDescription(`Deleted ${deleted.size} message(s).`)] });
+  const skipped = amount - deleted.size;
+  return interaction.editReply(notice('ok', [
+    `🧹 Deleted **${deleted.size}** message${deleted.size === 1 ? '' : 's'}${from ? ` from ${from}` : ''}.`,
+    skipped > 0 ? '-# Messages older than 14 days can\'t be bulk-deleted, so some were skipped.' : null,
+  ].filter(Boolean).join('\n'), { title: 'Channel cleaned', ephemeral: false }));
 }

@@ -1,6 +1,8 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { config } from '../config.js';
-import { colors, embed } from '../lib/ui.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { config, oauthEnabled } from '../config.js';
+import { getSettings } from '../lib/settings.js';
+import { getGameIconUrl, getUniverseId } from '../lib/roblox.js';
+import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
 
 // Posts the permanent button panels members click: one for verifying, one for opening tickets.
 export const data = new SlashCommandBuilder()
@@ -16,35 +18,66 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction) {
   const channel = interaction.options.getChannel('channel') ?? interaction.channel;
-  let message;
-
-  if (interaction.options.getSubcommand() === 'verify') {
-    message = {
-      embeds: [embed().setTitle('Verify your Roblox account')
-        .setDescription('Click **Verify** to link your Roblox account and unlock the rest of the server.')],
-      components: [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('verify:start').setLabel('Verify').setEmoji('✅').setStyle(ButtonStyle.Success),
-      )],
-    };
-  } else {
-    if (!config.ticketTypes.length) {
-      return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.bad).setDescription('Add ticket types to config.json first.')] });
-    }
-    const buttons = config.ticketTypes.slice(0, 25).map((t) => {
-      const b = new ButtonBuilder().setCustomId(`ticket:open:${t.id}`).setLabel(t.label)
-        .setStyle(ButtonStyle[t.style] ?? ButtonStyle.Secondary);
-      return t.emoji ? b.setEmoji(t.emoji) : b;
-    });
-    const rows = [];
-    for (let i = 0; i < buttons.length; i += 5) rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
-    message = {
-      embeds: [embed().setTitle('Need help?')
-        .setDescription('Pick a category below to open a private ticket with our staff team.\n\n' +
-          config.ticketTypes.map((t) => `${t.emoji ?? '•'} **${t.label}**`).join('\n'))],
-      components: rows,
-    };
-  }
+  const message = interaction.options.getSubcommand() === 'verify'
+    ? await verifyPanel(interaction.guild)
+    : ticketPanel(interaction.guild);
+  if (!message) return interaction.reply(notice('bad', 'Add ticket types to config.json first.'));
 
   await channel.send(message);
-  return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.ok).setDescription(`Panel posted in ${channel}.`)] });
+  return interaction.reply(notice('ok', `Posted in ${channel}. Members can use it right away.`, { title: 'Panel posted' }));
+}
+
+export async function verifyPanel(guild) {
+  const { placeId, gameName } = await getSettings(guild.id);
+  const universeId = placeId && (await getUniverseId(placeId).catch(() => null));
+  const icon = (universeId && (await getGameIconUrl(universeId).catch(() => null))) || guild.iconURL({ size: 256 });
+  const steps = oauthEnabled()
+    ? ['**1** · Press **Verify** below', '**2** · Sign in with Roblox and press **Confirm**', '**3** · Done! Your roles appear instantly']
+    : ['**1** · Press **Verify** and type your Roblox username', '**2** · Paste the code you get into your Roblox profile\'s About', '**3** · Press **Done**. Your roles appear instantly'];
+
+  return v2(card(colors.roblox,
+    section([
+      '## 🔐 Verify your Roblox account',
+      `Link your Roblox account to unlock **${guild.name}**${gameName ? ` and show off your **${gameName}** profile` : ''}.`,
+    ], thumb(icon)),
+    divider(),
+    text('**How it works**', ...steps),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('verify:start').setLabel('Verify').setEmoji('✅').setStyle(ButtonStyle.Success),
+    ),
+    footnote('We never see your password · takes about 30 seconds'),
+  ));
+}
+
+export function ticketPanel(guild) {
+  const types = config.ticketTypes;
+  if (!types.length) return null;
+  const button = (t, label = 'Open') => {
+    const b = new ButtonBuilder().setCustomId(`ticket:open:${t.id}`).setLabel(label)
+      .setStyle(ButtonStyle[t.style] ?? ButtonStyle.Secondary);
+    return t.emoji ? b.setEmoji(t.emoji) : b;
+  };
+
+  // Up to 8 categories get a row each with a description; more than that falls back to a grid of buttons.
+  let body;
+  if (types.length <= 8) {
+    body = types.map((t, i) => [
+      section([`**${t.label}**`, t.description ? `-# ${t.description}` : null], button(t)),
+      i < types.length - 1 ? divider({ line: false }) : null,
+    ]);
+  } else {
+    body = [];
+    for (let i = 0; i < Math.min(types.length, 25); i += 5) {
+      body.push(new ActionRowBuilder().addComponents(types.slice(i, i + 5).map((t) => button(t, t.label))));
+    }
+  }
+
+  return v2(card(colors.ticket,
+    section(['## 🎫 Need a hand?', 'Pick what fits best and a **private channel** opens with our staff team.'],
+      thumb(guild.iconURL({ size: 256 }))),
+    divider(),
+    body,
+    divider(),
+    footnote('One open ticket per person · please don\'t open tickets just to test'),
+  ));
 }

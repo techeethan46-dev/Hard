@@ -4,7 +4,8 @@ import {
 } from 'discord.js';
 import { gameUrl, getGame, getUniverseId } from '../lib/roblox.js';
 import { getSettings, updateSettings } from '../lib/settings.js';
-import { colors, embed } from '../lib/ui.js';
+import { card, colors, divider, footnote, notice, progress, section, text, thumb, v2 } from '../lib/ui.js';
+import { ticketPanel, verifyPanel } from './panel.js';
 
 // Step-by-step setup inside Discord. Every pick saves instantly and moves on to the next step.
 // customIds: setup:<action>:<step>[:extra]
@@ -42,7 +43,9 @@ export async function execute(interaction) {
   const settings = await getSettings(interaction.guildId);
   // Start at the summary if they've set things up before, otherwise at step 1.
   const start = Object.keys(settings).length ? OVERVIEW : 0;
-  return interaction.reply({ flags: MessageFlags.Ephemeral, ...(await render(interaction.guild, start)) });
+  const msg = await render(interaction.guild, start);
+  msg.flags |= MessageFlags.Ephemeral;
+  return interaction.reply(msg);
 }
 
 export async function handleButton(interaction) {
@@ -59,6 +62,15 @@ export async function handleButton(interaction) {
   }
   if (action === 'ask') return interaction.showModal(linkModal(step));
   if (action === 'finish') return interaction.update(finished(await getSettings(interaction.guildId)));
+  if (action === 'post') {
+    // From the Finish screen: post a panel into the channel /setup was run in.
+    const panel = stepStr === 'verify' ? await verifyPanel(interaction.guild) : ticketPanel(interaction.guild);
+    if (!panel) return interaction.reply(notice('bad', 'Add ticket types to config.json first.'));
+    const sent = await interaction.channel.send(panel).catch(() => null);
+    return interaction.reply(sent
+      ? notice('ok', `Posted in ${interaction.channel}.`)
+      : notice('bad', `I can't post in ${interaction.channel}. Give me access to it, or use \`/panel\` in another channel.`));
+  }
 }
 
 /** Select menus: role/channel picks and jump-to-step. */
@@ -97,8 +109,9 @@ export async function handleModal(interaction) {
 // ---------------------------------------------------------------- rendering
 
 const allowed = (i) => i.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-const denied = (i) => i.reply({ flags: MessageFlags.Ephemeral, content: 'You need **Manage Server** to change the setup.' });
-const bar = (done) => '▰'.repeat(done) + '▱'.repeat(STEPS.length - done);
+const denied = (i) => i.reply(notice('bad', 'You need the **Manage Server** permission to change the setup.'));
+const SECTION_COLORS = { Roles: colors.brand, Roblox: colors.roblox, Channels: colors.info, Tickets: colors.ticket };
+const SECTION_ICONS = { Roles: '🎭', Roblox: '🎮', Channels: '📡', Tickets: '🎫' };
 
 function linkModal(step) {
   return new ModalBuilder().setCustomId(`setup:link:${step}`).setTitle('Roblox game').addComponents(
@@ -129,7 +142,7 @@ function navRow(step, { canClear }) {
     new ButtonBuilder().setCustomId(`setup:go:${step - 1}`).setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(step === 0),
     // On the last step, Next goes to the summary page (which has the Finish button).
     new ButtonBuilder().setCustomId(`setup:go:${step + 1}`).setLabel('Next').setEmoji('▶️').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`setup:clear:${step}`).setLabel('Clear').setStyle(ButtonStyle.Secondary).setDisabled(!canClear),
+    new ButtonBuilder().setCustomId(`setup:clear:${step}`).setLabel('Clear').setEmoji('🧹').setStyle(ButtonStyle.Secondary).setDisabled(!canClear),
   );
 }
 
@@ -140,41 +153,40 @@ export async function render(guild, step, error) {
 
   const st = STEPS[step];
   const current = show(st, s);
-  const e = embed()
-    .setTitle(`⚙️ Setup · Step ${step + 1} of ${STEPS.length}`)
-    .setDescription([
-      bar(step + 1),
-      '',
-      `## ${st.emoji} ${st.title}`,
-      st.desc,
-      '',
-      `**Current:** ${current ? `✅ ${current}` : '➖ Not set'}`,
-      error ? `\n❌ ${error}` : '',
-    ].join('\n'))
-    .setFooter({ text: 'Pick below · it saves instantly and moves to the next step' });
 
-  const rows = [];
+  let picker;
   if (st.kind === 'role' || st.kind === 'roles') {
     const menu = new RoleSelectMenuBuilder().setCustomId(`setup:set:${step}`)
       .setPlaceholder(st.kind === 'roles' ? 'Select the roles…' : `Select the ${st.title.toLowerCase()}…`);
     if (st.kind === 'roles') menu.setMinValues(1).setMaxValues(10);
     const ids = [].concat(s[st.key] ?? []).filter((id) => guild.roles.cache.has(id));
     if (ids.length) menu.setDefaultRoles(ids);
-    rows.push(new ActionRowBuilder().addComponents(menu));
+    picker = new ActionRowBuilder().addComponents(menu);
   } else if (st.kind === 'channel' || st.kind === 'category') {
     const menu = new ChannelSelectMenuBuilder().setCustomId(`setup:set:${step}`)
       .setChannelTypes(st.kind === 'category' ? [ChannelType.GuildCategory] : TEXT_CHANNELS)
       .setPlaceholder(`Select the ${st.title.toLowerCase()}…`);
     if (s[st.key] && guild.channels.cache.has(s[st.key])) menu.setDefaultChannels(s[st.key]);
-    rows.push(new ActionRowBuilder().addComponents(menu));
+    picker = new ActionRowBuilder().addComponents(menu);
   } else if (st.kind === 'game') {
-    rows.push(new ActionRowBuilder().addComponents(
+    picker = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`setup:ask:${step}`).setStyle(ButtonStyle.Success).setEmoji('🔗')
-        .setLabel(current ? `Change ${st.kind}` : `Set ${st.kind}`),
-    ));
+        .setLabel(current ? 'Change game' : 'Paste game link'),
+    );
   }
-  rows.push(navRow(step, { canClear: Boolean(current) }));
-  return { embeds: [e], components: rows };
+
+  return v2(card(SECTION_COLORS[st.section] ?? colors.brand,
+    text(`-# ⚙️ SETUP · ${st.section.toUpperCase()} · STEP ${step + 1} OF ${STEPS.length}`, progress(step + 1, STEPS.length)),
+    divider(),
+    text(`## ${st.emoji} ${st.title}`, st.desc),
+    divider({ line: false }),
+    text(`**Current** · ${current ? `✅ ${current}` : '➖ Not set'}`),
+    error ? text(`❌ ${error}`) : null,
+    divider(),
+    picker,
+    navRow(step, { canClear: Boolean(current) }),
+    footnote(st.kind === 'game' ? 'We check the link with Roblox before saving' : 'Pick below · it saves instantly and moves to the next step'),
+  ));
 }
 
 /** Problems that would stop features from working, in plain words. */
@@ -219,40 +231,50 @@ async function overview(guild, s) {
   const sections = {};
   for (const st of STEPS) {
     const v = show(st, s);
-    (sections[st.section] ??= []).push(`${st.emoji} ${st.title} · ${v ? `✅ ${v}` : '➖'}`);
+    (sections[st.section] ??= []).push(v ? `✅ **${st.title}** · ${v}` : `➖ **${st.title}** · *not set*`);
   }
+  const done = STEPS.filter((st) => show(st, s)).length;
   const problems = checks(guild, s);
-  const e = embed()
-    .setTitle('⚙️ Setup · Summary')
-    .setDescription([
-      bar(STEPS.length),
-      ...Object.entries(sections).map(([name, lines]) => `\n### ${name}\n${lines.join('\n')}`),
-      `\n### 🔍 Checks\n${problems.length ? problems.join('\n') : '✅ Everything looks good!'}`,
-    ].join('\n').slice(0, 4096))
-    .setFooter({ text: 'Jump to any step with the menu · press Finish when you\'re done' });
+  const blocking = problems.filter((p) => p.startsWith('⚠️')).length;
 
-  return {
-    embeds: [e],
-    components: [
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId('setup:jump').setPlaceholder('Jump to a step…').addOptions(
-          STEPS.map((st, i) => ({ label: `${i + 1}. ${st.title}`, value: String(i), emoji: st.emoji })),
-        ),
+  const summary = card(colors.brand,
+    section([
+      '-# ⚙️ SETUP · SUMMARY',
+      `## ${guild.name}`,
+      `${progress(done, STEPS.length)}  **${done}/${STEPS.length}** set`,
+    ], thumb(guild.iconURL({ size: 128 }))),
+    Object.entries(sections).map(([name, lines]) => [divider(), text(`### ${SECTION_ICONS[name] ?? '•'} ${name}`, lines)]),
+    divider(),
+    new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder().setCustomId('setup:jump').setPlaceholder('✏️ Change something…').addOptions(
+        STEPS.map((st, i) => ({ label: st.title, description: st.section, value: String(i), emoji: st.emoji })),
       ),
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`setup:go:${OVERVIEW - 1}`).setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('setup:finish').setLabel('Finish').setEmoji('✅').setStyle(ButtonStyle.Success),
-      ),
-    ],
-  };
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`setup:go:${OVERVIEW - 1}`).setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('setup:finish').setLabel('Finish').setEmoji('✅').setStyle(ButtonStyle.Success),
+    ),
+  );
+  const health = card(blocking ? colors.warn : colors.ok,
+    text(
+      blocking ? `### 🔍 ${blocking} thing${blocking === 1 ? '' : 's'} to fix` : '### 🔍 Checks',
+      problems.length ? problems : ['✅ Everything looks good! The bot has all the access it needs.'],
+    ),
+  );
+  return v2([summary, health]);
 }
 
 function finished(s) {
-  const next = ['Run `/panel verify` in the channel where people should verify.'];
-  if (s.ticketCategory) next.push('Run `/panel tickets` in your support channel.');
-  next.push('Run `/setup` again any time to change something.');
-  return {
-    embeds: [embed(colors.ok).setTitle('✅ Setup saved').setDescription(`**Next:**\n${next.map((n) => `• ${n}`).join('\n')}`)],
-    components: [],
-  };
+  return v2(card(colors.ok,
+    text('## 🎉 You\'re all set!', 'Your settings are saved. Last step: post the buttons members will click.'),
+    divider(),
+    section(['**🔐 Verify panel**', '-# Post it in the channel where people should verify'],
+      new ButtonBuilder().setCustomId('setup:post:verify').setLabel('Post here').setStyle(ButtonStyle.Primary)),
+    s.ticketCategory
+      ? section(['**🎫 Ticket panel**', '-# Post it in your support channel'],
+        new ButtonBuilder().setCustomId('setup:post:tickets').setLabel('Post here').setStyle(ButtonStyle.Primary))
+      : null,
+    divider(),
+    footnote('Tip: run this from the right channel, or use /panel later · /setup again any time to change things'),
+  ));
 }

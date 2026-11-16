@@ -1,7 +1,7 @@
-import { SlashCommandBuilder, time } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
 import { getHeadshotUrl, getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
 import { store } from '../lib/store.js';
-import { colors, embed } from '../lib/ui.js';
+import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('whois')
@@ -10,7 +10,6 @@ export const data = new SlashCommandBuilder()
   .addStringOption((o) => o.setName('username').setDescription('Roblox username').setMaxLength(20));
 
 export async function execute(interaction) {
-  await interaction.deferReply();
   const username = interaction.options.getString('username');
   let robloxId;
   let discordId;
@@ -23,22 +22,36 @@ export async function execute(interaction) {
     discordId = member.id;
     robloxId = (await store.links.get(member.id))?.robloxId;
     if (!robloxId) {
-      return interaction.editReply({ embeds: [embed(colors.warn).setDescription(`${member} hasn't verified a Roblox account.`)] });
+      return interaction.reply(notice('warn', member.id === interaction.user.id
+        ? "You haven't linked a Roblox account yet. Use `/verify`."
+        : `${member} hasn't linked a Roblox account.`));
     }
   }
 
+  await interaction.deferReply();
   const user = robloxId && (await getUser(robloxId));
-  if (!user) return interaction.editReply({ embeds: [embed(colors.bad).setDescription('Roblox user not found.')] });
+  if (!user) return interaction.editReply(notice('bad', `No Roblox user called **${username}**.`, { ephemeral: false }));
 
-  const e = embed()
-    .setTitle(`${user.displayName} (@${user.name})`)
-    .setURL(profileUrl(user.id))
-    .setThumbnail(await getHeadshotUrl(user.id))
-    .addFields(
-      { name: 'User ID', value: String(user.id), inline: true },
-      { name: 'Joined Roblox', value: time(new Date(user.created), 'D'), inline: true },
-      { name: 'Discord', value: discordId ? `<@${discordId}>` : 'Not linked', inline: true },
-    );
-  if (user.isBanned) e.setColor(colors.bad).setFooter({ text: 'This account is banned on Roblox' });
-  return interaction.editReply({ embeds: [e] });
+  const created = Math.floor(new Date(user.created).getTime() / 1000);
+  const ageDays = Math.floor((Date.now() - created * 1000) / 86_400_000);
+  const age = ageDays >= 365 ? `${Math.floor(ageDays / 365)} year${ageDays >= 730 ? 's' : ''}` : `${ageDays} day${ageDays === 1 ? '' : 's'}`;
+  const bio = (user.description ?? '').replace(/\s+/g, ' ').trim();
+
+  return interaction.editReply(v2(card(user.isBanned ? colors.bad : colors.roblox,
+    section([
+      `### ${user.displayName}${user.hasVerifiedBadge ? ' ☑️' : ''}`,
+      `-# @${user.name} · ID ${user.id}`,
+      discordId ? `🔗 Linked to <@${discordId}>` : '🔗 Not linked to Discord',
+    ], thumb(await getHeadshotUrl(user.id).catch(() => null))),
+    divider(),
+    text(
+      `🎂 Joined Roblox <t:${created}:D> · ${age} ago`,
+      user.isBanned ? '⛔ **This account is banned on Roblox**' : null,
+      bio ? `> ${bio.slice(0, 200)}${bio.length > 200 ? '…' : ''}` : null,
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setLabel('Roblox profile').setEmoji('👤').setStyle(ButtonStyle.Link).setURL(profileUrl(user.id)),
+    ),
+    footnote('Info from Roblox'),
+  )));
 }

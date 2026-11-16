@@ -1,5 +1,5 @@
-import { Events, MessageFlags } from 'discord.js';
-import { colors, embed } from '../lib/ui.js';
+import { Events } from 'discord.js';
+import { notice } from '../lib/ui.js';
 
 export const name = Events.InteractionCreate;
 
@@ -18,7 +18,7 @@ export async function execute(interaction, commands) {
     else await command.execute(interaction);
   } catch (err) {
     console.error(`Error in ${interaction.commandName ?? interaction.customId}:`, err);
-    const payload = { flags: MessageFlags.Ephemeral, embeds: [embed(colors.bad).setDescription('Something went wrong. Please try again in a moment.')] };
+    const payload = notice('bad', 'Please try again in a moment. If it keeps happening, tell the staff team.', { title: 'Something went wrong' });
     const send = interaction.deferred || interaction.replied ? interaction.followUp(payload) : interaction.reply(payload);
     await send.catch(() => {});
   }
