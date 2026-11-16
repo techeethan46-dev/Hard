@@ -184,7 +184,14 @@ export function memoryBackend(path = null) {
       get: async (g) => copy(data.settings[g]) ?? {},
       update: async (g, patch) => {
         const s = (data.settings[g] ??= {});
-        for (const [k, v] of Object.entries(patch)) (v === null || v === undefined ? delete s[k] : (s[k] = structuredClone(v)));
+        for (const [k, v] of Object.entries(patch)) {
+          // "stickies.123" updates one nested key, like MongoDB does.
+          const path = k.split('.');
+          const parent = path.slice(0, -1).reduce((o, p) => (o[p] ??= {}), s);
+          const last = path.at(-1);
+          if (v === null || v === undefined) delete parent[last];
+          else parent[last] = structuredClone(v);
+        }
         save();
       },
     },
