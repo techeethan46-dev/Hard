@@ -1,11 +1,17 @@
 import { Events } from 'discord.js';
 import { getSettings } from '../lib/settings.js';
+import { screenJoin } from '../lib/raid.js';
+import { memberJoined } from '../lib/serverlog.js';
 import { syncMember } from '../lib/roles.js';
 import { card, colors, divider, footnote, section, text, thumb, v2 } from '../lib/ui.js';
 
 export const name = Events.GuildMemberAdd;
 
 export async function execute(member) {
+  // Raid protection / minimum account age first: kicked people get no welcome.
+  if (await screenJoin(member).catch((err) => { console.error('Raid check failed:', err.message); return false; })) return;
+  await memberJoined(member).catch((err) => console.error('Join log failed:', err.message));
+
   // Returning members who verified before get their roles back automatically;
   // new members get the Unverified role (if configured).
   await syncMember(member).catch((err) => console.error('Join sync failed:', err.message));

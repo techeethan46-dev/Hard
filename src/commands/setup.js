@@ -6,6 +6,8 @@ import { gameUrl, getGame, getUniverseId } from '../lib/roblox.js';
 import { getSettings, updateSettings } from '../lib/settings.js';
 import { card, colors, divider, footnote, notice, progress, section, text, thumb, v2 } from '../lib/ui.js';
 import { ticketPanel, verifyPanel } from './panel.js';
+import { DEFAULT_FILTERS, FILTERS } from '../lib/automod.js';
+import { AGE_OPTIONS, RAID_LEVELS } from '../lib/raid.js';
 
 // Step-by-step setup inside Discord. Every pick saves instantly and moves on to the next step.
 // customIds: setup:<action>:<step>[:extra]
@@ -37,7 +39,20 @@ export const STEPS = [
     desc: 'Give a role when someone reaches a level. Pick a role, then type the level.\nExample: level **5** → @Active, level **20** → @Veteran.' },
   { key: 'streakTimezone', kind: 'timezone', section: 'Levels', emoji: '🕛', title: 'Streak timezone',
     desc: 'Chat streaks count calendar days. Pick where most of your members live, so a "day" ends at their midnight.' },
+  { key: 'serverLogChannel', kind: 'channel', section: 'Safety', emoji: '🧾', title: 'Server log channel',
+    desc: 'Deleted and edited messages, joins and leaves, role and nickname changes, and bans are logged here. Make it staff-only.' },
+  { key: 'automodFilters', kind: 'multi', section: 'Safety', emoji: '🤖', title: 'AutoMod filters', options: FILTERS, fallback: DEFAULT_FILTERS,
+    desc: 'Pick what AutoMod removes. Staff (anyone who can manage messages) are never filtered. Untick everything to turn AutoMod off.' },
+  { key: 'bannedWords', kind: 'words', section: 'Safety', emoji: '🤬', title: 'Blocked words',
+    desc: 'Words AutoMod deletes (needs the **Blocked words** filter). It also catches simple disguises like b4dw0rd.' },
+  { key: 'automodExemptRoles', kind: 'roles', section: 'Safety', emoji: '🛡️', title: 'AutoMod exempt roles',
+    desc: 'Optional. Roles AutoMod ignores, like trusted members or content creators. Staff are already exempt.' },
+  { key: 'raidProtection', kind: 'choice', section: 'Safety', emoji: '🚨', title: 'Raid protection', options: RAID_LEVELS, fallback: 'normal',
+    desc: 'When lots of people join at once, raid mode kicks brand-new accounts (under 30 days) for a few minutes and alerts staff.' },
+  { key: 'minAccountAge', kind: 'choice', section: 'Safety', emoji: '👶', title: 'Minimum account age', options: AGE_OPTIONS, fallback: '0',
+    desc: 'Kick accounts younger than this when they join (they get a DM explaining why). Stops most alt accounts.' },
 ];
+const optionLabel = (st, v) => st.options.find(([id]) => id === v)?.[1] ?? v;
 
 export const TIMEZONES = [
   ['UTC', 'UTC (world time)'], ['America/Los_Angeles', 'US Pacific (Los Angeles)'], ['America/Denver', 'US Mountain (Denver)'],
@@ -80,6 +95,14 @@ export async function handleButton(interaction) {
     return interaction.update(await render(interaction.guild, step));
   }
   if (action === 'ask') return interaction.showModal(linkModal(step));
+  if (action === 'words') {
+    const { bannedWords = [] } = await getSettings(interaction.guildId);
+    return interaction.showModal(new ModalBuilder().setCustomId(`setup:wordsave:${step}`).setTitle('Blocked words').addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('words').setLabel('Words or phrases, separated by commas')
+        .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(3000).setValue(bannedWords.join(', '))
+        .setPlaceholder('word one, word two, a phrase')),
+    ));
+  }
   if (action === 'finish') return interaction.update(finished(await getSettings(interaction.guildId)));
   if (action === 'post') {
     // From the Finish screen: post a panel into the channel /setup was run in.
@@ -103,7 +126,7 @@ export async function handleSelect(interaction) {
 
   if (action === 'set') {
     const s = STEPS[step];
-    await updateSettings(interaction.guildId, { [s.key]: s.kind === 'roles' ? values : values[0] });
+    await updateSettings(interaction.guildId, { [s.key]: s.kind === 'roles' || s.kind === 'multi' ? values : values[0] });
     return interaction.update(await render(interaction.guild, step + 1));
   }
 
@@ -128,6 +151,12 @@ export async function handleModal(interaction) {
   if (!allowed(interaction)) return denied(interaction);
   const [, action, stepStr, roleId] = interaction.customId.split(':');
   const step = Number(stepStr);
+
+  if (action === 'wordsave') {
+    const words = [...new Set(interaction.fields.getTextInputValue('words').split(/[,\n]/).map((w) => w.trim().toLowerCase()).filter(Boolean))].slice(0, 300);
+    await updateSettings(interaction.guildId, { bannedWords: words.length ? words : null });
+    return interaction.update(await render(interaction.guild, step));
+  }
 
   if (action === 'reward') {
     const level = Number(interaction.fields.getTextInputValue('level').trim());
@@ -156,8 +185,8 @@ export async function handleModal(interaction) {
 
 const allowed = (i) => i.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
 const denied = (i) => i.reply(notice('bad', 'You need the **Manage Server** permission to change the setup.'));
-const SECTION_COLORS = { Roles: colors.brand, Roblox: colors.roblox, Channels: colors.info, Tickets: colors.ticket, Levels: colors.ok };
-const SECTION_ICONS = { Roles: '🎭', Roblox: '🎮', Channels: '📡', Tickets: '🎫', Levels: '⭐' };
+const SECTION_COLORS = { Roles: colors.brand, Roblox: colors.roblox, Channels: colors.info, Tickets: colors.ticket, Levels: colors.ok, Safety: colors.bad };
+const SECTION_ICONS = { Roles: '🎭', Roblox: '🎮', Channels: '📡', Tickets: '🎫', Levels: '⭐', Safety: '🛡️' };
 
 function linkModal(step) {
   return new ModalBuilder().setCustomId(`setup:link:${step}`).setTitle('Roblox game').addComponents(
@@ -172,6 +201,7 @@ function linkModal(step) {
 /** How a saved value looks, or null if not set. */
 function show(step, s) {
   const v = s[step.key];
+  if (step.kind === 'multi' && Array.isArray(v)) return v.length ? v.map((id) => optionLabel(step, id)).join(', ') : 'All off';
   if (v === undefined || v === null || (Array.isArray(v) && !v.length)) return null;
   switch (step.kind) {
     case 'role': return `<@&${v}>`;
@@ -180,6 +210,8 @@ function show(step, s) {
     case 'category': return `<#${v}>`;
     case 'game': return `[${s.gameName ?? v}](${gameUrl(v)})`;
     case 'timezone': return tzLabel(v);
+    case 'choice': return optionLabel(step, v);
+    case 'words': return `${v.length} word${v.length === 1 ? '' : 's'} · ||${v.slice(0, 8).join(', ')}${v.length > 8 ? ', …' : ''}||`;
     case 'rewards': return v.map((r) => `Level **${r.level}** → <@&${r.roleId}>`).join(', ');
     default: return String(v);
   }
@@ -216,6 +248,20 @@ export async function render(guild, step, error) {
       .setPlaceholder(`Select the ${st.title.toLowerCase()}…`);
     if (s[st.key] && guild.channels.cache.has(s[st.key])) menu.setDefaultChannels(s[st.key]);
     picker = new ActionRowBuilder().addComponents(menu);
+  } else if (st.kind === 'multi' || st.kind === 'choice') {
+    const selected = [].concat(s[st.key] ?? st.fallback);
+    const menu = new StringSelectMenuBuilder().setCustomId(`setup:set:${step}`)
+      .setPlaceholder(st.kind === 'multi' ? 'Tick what you want on…' : 'Choose one…')
+      .addOptions(st.options.map(([id, label, description]) => ({
+        label, value: id, default: selected.includes(id), ...(description ? { description: description.slice(0, 100) } : {}),
+      })));
+    if (st.kind === 'multi') menu.setMinValues(0).setMaxValues(st.options.length);
+    picker = new ActionRowBuilder().addComponents(menu);
+  } else if (st.kind === 'words') {
+    picker = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`setup:words:${step}`).setStyle(ButtonStyle.Success).setEmoji('✏️')
+        .setLabel(s.bannedWords?.length ? 'Edit the list' : 'Add words'),
+    );
   } else if (st.kind === 'timezone') {
     picker = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder().setCustomId(`setup:set:${step}`).setPlaceholder('Select a timezone…').addOptions(
@@ -250,12 +296,17 @@ export async function render(guild, step, error) {
     divider(),
     text(`## ${st.emoji} ${st.title}`, st.desc),
     divider({ line: false }),
-    text(`**Current** · ${current ? `✅ ${current}` : st.kind === 'timezone' ? '➖ Not set · using UTC' : '➖ Not set'}`),
+    text(`**Current** · ${current ? `✅ ${current}`
+      : st.kind === 'timezone' ? '➖ Not set · using UTC'
+        : st.fallback !== undefined ? `➖ Not set · using the default: ${[].concat(st.fallback).map((v) => optionLabel(st, v)).join(', ')}`
+          : '➖ Not set'}`),
     error ? text(`❌ ${error}`) : null,
     divider(),
     picker,
     navRow(step, { canClear: Boolean(current) }),
     footnote(st.kind === 'game' ? 'We check the link with Roblox before saving'
+      : st.kind === 'multi' ? 'Tick or untick, then click outside the menu to save'
+      : st.kind === 'words' ? 'Only staff can see this list'
       : st.kind === 'rewards' ? 'Add as many as you like, then press Next'
         : 'Pick below · it saves instantly and moves to the next step'),
   ));
