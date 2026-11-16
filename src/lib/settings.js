@@ -7,9 +7,6 @@ import { store } from './store.js';
  * @property {string} [unverifiedRole]    given until they verify
  * @property {string} [placeId]           Roblox game place ID
  * @property {string} [gameName]
- * @property {string} [groupId]           Roblox group ID
- * @property {string} [groupName]
- * @property {{roleId:string,minRank:number,maxRank:number}[]} [rankBindings]
  * @property {string} [welcomeChannel]
  * @property {string} [modLogChannel]
  * @property {string[]} [supportRoles]

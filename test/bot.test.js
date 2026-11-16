@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 process.env.DISCORD_TOKEN = 'x';
 
 const profiles = { 1001: { id: 1001, name: 'builderman', displayName: 'Builder', description: '', created: '2006-01-01T00:00:00Z' } };
-let groupRank = 0;
 globalThis.fetch = async (url, opts = {}) => {
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
   if (url.includes('/v1/usernames/users')) {
@@ -14,9 +13,6 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   const m = url.match(/users\.roblox\.com\/v1\/users\/(\d+)$/);
   if (m) return profiles[m[1]] ? ok(profiles[m[1]]) : { ok: false, status: 404 };
-  if (url.includes('/groups/roles')) {
-    return ok({ data: groupRank ? [{ group: { id: 42 }, role: { name: 'Rank', rank: groupRank } }] : [] });
-  }
   throw new Error('unexpected fetch ' + url);
 };
 
@@ -27,8 +23,7 @@ before(async () => {
   // What an admin would pick in /setup
   const { updateSettings } = await import('../src/lib/settings.js');
   await updateSettings('g1', {
-    verifiedRole: 'r-verified', unverifiedRole: 'r-unverified', groupId: '42',
-    rankBindings: [{ minRank: 1, maxRank: 254, roleId: 'r-member' }, { minRank: 200, maxRank: 255, roleId: 'r-staff' }],
+    verifiedRole: 'r-verified', unverifiedRole: 'r-unverified',
   });
   verify = await import('../src/commands/verify.js');
   roles = await import('../src/lib/roles.js');
@@ -76,6 +71,13 @@ test('every command builds valid slash-command JSON', async () => {
   }
 });
 
+test('unverifying swaps Verified back to Unverified', async () => {
+  const m = fakeMember('u9');
+  m.held.add('r-verified');
+  await roles.syncMember(m);
+  assert.deepEqual([...m.held], ['r-unverified']);
+});
+
 test('unverified member gets the Unverified role only', async () => {
   const m = fakeMember('new');
   await roles.syncMember(m);
@@ -85,7 +87,6 @@ test('unverified member gets the Unverified role only', async () => {
 test('full verify flow: wrong code is rejected, right code links and syncs roles', async () => {
   const m = fakeMember('u1');
   m.held.add('r-unverified');
-  groupRank = 210;
 
   const i1 = fakeInteraction(m, { username: 'BuilderMan' });
   await verify.execute(i1);
@@ -106,18 +107,10 @@ test('full verify flow: wrong code is rejected, right code links and syncs roles
   assert.match(lastText(i3), /Verified!/);
   assert.equal((await store.links.get('u1')).robloxId, 1001);
   assert.ok(!(await store.pending.get('u1')));
-  assert.deepEqual([...m.held].sort(), ['r-member', 'r-staff', 'r-verified']);
+  assert.deepEqual([...m.held], ['r-verified']); // Unverified swapped for Verified
   assert.equal(m.nickname, 'Builder (@builderman)');
 });
 
-test('demotion in the group removes the staff role on resync', async () => {
-  const m = fakeMember('u1');
-  ['r-verified', 'r-member', 'r-staff'].forEach((r) => m.held.add(r));
-  groupRank = 5;
-  const r = await roles.syncMember(m);
-  assert.deepEqual(r.removed, ['r-staff']);
-  assert.deepEqual([...m.held].sort(), ['r-member', 'r-verified']);
-});
 
 test('expired code is refused', async () => {
   const m = fakeMember('u2');

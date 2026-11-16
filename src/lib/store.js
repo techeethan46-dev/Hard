@@ -4,7 +4,7 @@
 // Everything goes through `store`, so commands never care which backend is active:
 //   store.links     discordId -> { robloxId, username, linkedAt }
 //   store.pending   discordId -> { robloxId, username, code, expiresAt }   (profile-code verification)
-//   store.settings  guildId -> everything chosen in /setup (roles, channels, game, group)
+//   store.settings  guildId -> everything chosen in /setup (roles, channels, game)
 //   store.warnings  per server + member: list of { id, reason, moderatorId, at }
 //   store.tickets   channelId -> { guildId, number, ownerId, type, claimedBy, openedAt, closing }
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';

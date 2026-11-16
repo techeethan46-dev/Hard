@@ -22,7 +22,6 @@ export async function execute(interaction) {
     .setTitle(`Updated ${target.displayName}`)
     .addFields(
       { name: 'Roblox', value: linked ? linked.username : 'Not verified — use `/verify`', inline: true },
-      { name: 'Group rank', value: r.groupRole ? `${r.groupRole.name} (${r.groupRole.rank})` : '—', inline: true },
       { name: 'Roles added', value: fmt(r.added) },
       { name: 'Roles removed', value: fmt(r.removed) },
     );
