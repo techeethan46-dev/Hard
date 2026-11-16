@@ -1,5 +1,6 @@
 // Small web server that receives the "Sign in with Roblox" redirect.
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { config, oauthEnabled } from '../config.js';
 import { consumeSession, exchangeCode } from '../lib/oauth.js';
 import { getHeadshotUrl } from '../lib/roblox.js';
@@ -48,6 +49,8 @@ small{display:block;margin-top:16px;color:#6d6f78;font-size:13px}
 </style></head>
 <body><main>${badge}<h1>${esc(title)}</h1><p>${body}</p>${back}<small>You can close this tab.</small></main></body></html>`;
 };
+
+const ASSETS = Object.fromEntries(['gift.png', 'trophy.png'].map((f) => [`/assets/${f}`, readFileSync(new URL(`../../assets/${f}`, import.meta.url))]));
 
 /** Plain text pages Roblox's OAuth app form can link to. */
 const POLICY = {
@@ -103,6 +106,10 @@ export function startWebServer(client) {
         // Health check for Render: only healthy once logged in to Discord.
         status = client.isReady?.() ? 200 : 503;
         html = status === 200 ? 'ok' : 'starting';
+      } else if (ASSETS[url.pathname]) {
+        // Images used in the bot's cards (Discord loads them from here).
+        res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=604800' }).end(ASSETS[url.pathname]);
+        return;
       } else if (POLICY[url.pathname]) {
         [status, html] = [200, policyPage(...POLICY[url.pathname])];
       } else if (url.pathname === '/oauth/callback' && oauthEnabled()) {

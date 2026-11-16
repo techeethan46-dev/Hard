@@ -2,6 +2,7 @@ import { ActivityType, Events } from 'discord.js';
 import { config } from '../config.js';
 import { getSettings } from '../lib/settings.js';
 import { sweepStreaks } from '../lib/activity.js';
+import { endDueGiveaways } from '../lib/giveaways.js';
 import { getGame, getUniverseId } from '../lib/roblox.js';
 
 export const name = Events.ClientReady;
@@ -14,6 +15,11 @@ export async function execute(client) {
   const sweep = () => sweepStreaks(client).catch((err) => console.error('Streak sweep failed:', err.message));
   sweep();
   setInterval(sweep, 10 * 60_000);
+
+  // End giveaways on time (also catches ones that ended while the bot was offline).
+  const giveaways = () => endDueGiveaways(client).catch((err) => console.error('Giveaway check failed:', err.message));
+  giveaways();
+  setInterval(giveaways, 10_000);
   // Show the live player count in the bot's status, e.g. "Watching 1,234 playing My Game".
   const update = async () => {
     try {
