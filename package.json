@@ -1,0 +1,21 @@
+{
+  "name": "roblox-community-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for an official Roblox game community: verification, group rank sync, game stats, moderation, suggestions.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.28.1",
+    "dotenv": "^16.4.5",
+    "mongodb": "^7.9.0"
+  }
+}

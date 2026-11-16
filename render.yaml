@@ -1,0 +1,29 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+# Render will ask you for every value marked `sync: false`.
+services:
+  - type: web
+    name: roblox-community-bot
+    runtime: node
+    # The free plan sleeps after 15 minutes without web traffic, which takes the bot offline.
+    # Starter is the cheapest plan that stays on 24/7.
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    # Registers slash commands on every deploy, then starts the bot.
+    startCommand: npm run deploy && npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    # Only secrets live here. Roles, channels, game and group are set in Discord with /setup.
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      # Optional: "Sign in with Roblox". Leave empty to use the profile-code method.
+      - key: ROBLOX_OAUTH_CLIENT_ID
+        sync: false
+      - key: ROBLOX_OAUTH_CLIENT_SECRET
+        sync: false

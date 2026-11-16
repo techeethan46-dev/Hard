@@ -1,0 +1,78 @@
+{
+  "nicknameFormat": "{displayName} (@{username})",
+  "statusUpdateSeconds": 120,
+  "ticketTypes": [
+    {
+      "id": "support",
+      "label": "General Support",
+      "emoji": "❓",
+      "style": "Primary",
+      "questions": [
+        {
+          "label": "How can we help?",
+          "style": "paragraph",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "label": "Report a Player",
+      "emoji": "🚨",
+      "style": "Danger",
+      "questions": [
+        {
+          "label": "Player's Roblox username",
+          "style": "short",
+          "required": true
+        },
+        {
+          "label": "What happened?",
+          "style": "paragraph",
+          "required": true
+        },
+        {
+          "label": "Evidence (video/screenshot links)",
+          "style": "paragraph",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "bug",
+      "label": "Bug Report",
+      "emoji": "🐛",
+      "style": "Secondary",
+      "questions": [
+        {
+          "label": "What's the bug?",
+          "style": "paragraph",
+          "required": true
+        },
+        {
+          "label": "How can we reproduce it?",
+          "style": "paragraph",
+          "required": false
+        },
+        {
+          "label": "Device (PC, mobile, console...)",
+          "style": "short",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "purchase",
+      "label": "Purchase Issue",
+      "emoji": "💸",
+      "style": "Success",
+      "questions": [
+        {
+          "label": "What did you buy and when?",
+          "style": "paragraph",
+          "required": true
+        }
+      ]
+    }
+  ]
+}
