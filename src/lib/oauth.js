@@ -2,6 +2,7 @@
 // Docs: https://create.roblox.com/docs/cloud/auth/oauth2-overview
 import { createHash, randomBytes } from 'node:crypto';
 import { config } from '../config.js';
+import { getUser } from './roblox.js';
 
 const AUTHORIZE_URL = 'https://apis.roblox.com/oauth/v1/authorize';
 const TOKEN_URL = 'https://apis.roblox.com/oauth/v1/token';
@@ -25,7 +26,8 @@ export function createAuthUrl({ discordId, guildId, onDone }) {
   url.search = new URLSearchParams({
     client_id: config.oauth.clientId,
     redirect_uri: redirectUri(),
-    scope: 'openid profile',
+    // Only the basic sign-in permission: it gives us the Roblox user ID, and the public API gives the rest.
+    scope: 'openid',
     response_type: 'code',
     state,
     code_challenge: createHash('sha256').update(verifier).digest('base64url'),
@@ -57,13 +59,29 @@ export async function exchangeCode(code, verifier) {
     signal: AbortSignal.timeout(10_000),
   });
   if (!tokenRes.ok) throw new Error(`Roblox token exchange failed (${tokenRes.status})`);
-  const { access_token: accessToken } = await tokenRes.json();
+  const { access_token: accessToken, id_token: idToken } = await tokenRes.json();
 
-  const infoRes = await fetch(USERINFO_URL, {
-    headers: { authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!infoRes.ok) throw new Error(`Roblox userinfo failed (${infoRes.status})`);
-  const info = await infoRes.json();
-  return { robloxId: Number(info.sub), username: info.preferred_username, displayName: info.nickname ?? info.name };
+  // The user ID is in the ID token we just got straight from Roblox; fall back to the userinfo endpoint.
+  let sub = idToken && decodeJwt(idToken)?.sub;
+  if (!sub) {
+    const infoRes = await fetch(USERINFO_URL, {
+      headers: { authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!infoRes.ok) throw new Error(`Roblox userinfo failed (${infoRes.status})`);
+    sub = (await infoRes.json()).sub;
+  }
+  if (!sub) throw new Error('Roblox sign-in returned no user ID');
+
+  const user = await getUser(sub);
+  if (!user) throw new Error(`Roblox user ${sub} not found`);
+  return { robloxId: Number(sub), username: user.name, displayName: user.displayName };
+}
+
+function decodeJwt(token) {
+  try {
+    return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
 }
