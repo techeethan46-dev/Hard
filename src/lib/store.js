@@ -4,8 +4,9 @@
 // Everything goes through `store`, so commands never care which backend is active:
 //   store.links     discordId -> { robloxId, username, linkedAt }
 //   store.pending   discordId -> { robloxId, username, code, expiresAt }   (profile-code verification)
-//   store.warnings  per-member list of { id, reason, moderatorId, at }
-//   store.tickets   channelId -> { number, ownerId, type, claimedBy, openedAt, closing }
+//   store.settings  guildId -> everything chosen in /setup (roles, channels, game, group)
+//   store.warnings  per server + member: list of { id, reason, moderatorId, at }
+//   store.tickets   channelId -> { guildId, number, ownerId, type, claimedBy, openedAt, closing }
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -41,12 +42,13 @@ async function mongoBackend(db) {
   const warnings = db.collection('warnings');
   const tickets = db.collection('tickets');
   const counters = db.collection('counters');
+  const settings = db.collection('guildSettings');
 
   await Promise.all([
     links.createIndex({ robloxId: 1 }),
     pending.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }), // MongoDB deletes expired codes itself
-    warnings.createIndex({ discordId: 1, at: 1 }),
-    tickets.createIndex({ ownerId: 1 }),
+    warnings.createIndex({ guildId: 1, discordId: 1, at: 1 }),
+    tickets.createIndex({ guildId: 1, ownerId: 1 }),
   ]);
 
   // Stored with _id = Discord/channel ID; hand back plain objects without Mongo's fields.
@@ -58,6 +60,16 @@ async function mongoBackend(db) {
   };
 
   return {
+    settings: {
+      get: async (guildId) => clean(await settings.findOne({ _id: guildId })) ?? {},
+      update: async (guildId, patch) => {
+        const $set = {};
+        const $unset = {};
+        for (const [k, v] of Object.entries(patch)) (v === null || v === undefined ? ($unset[k] = '') : ($set[k] = v));
+        const update = { ...(Object.keys($set).length && { $set }), ...(Object.keys($unset).length && { $unset }) };
+        if (Object.keys(update).length) await settings.updateOne({ _id: guildId }, update, { upsert: true });
+      },
+    },
     links: {
       get: async (discordId) => clean(await links.findOne({ _id: discordId })),
       set: async (discordId, { robloxId, username }) => {
@@ -74,18 +86,19 @@ async function mongoBackend(db) {
       delete: async (discordId) => { await pending.deleteOne({ _id: discordId }); },
     },
     warnings: {
-      list: async (discordId) => (await warnings.find({ discordId }).sort({ at: 1 }).toArray()).map(({ _id, discordId: _, ...w }) => w),
-      add: async (discordId, w) => {
-        await warnings.insertOne({ discordId, ...w });
-        return warnings.countDocuments({ discordId });
+      list: async (guildId, discordId) =>
+        (await warnings.find({ guildId, discordId }).sort({ at: 1 }).toArray()).map(({ _id, guildId: _g, discordId: _d, ...w }) => w),
+      add: async (guildId, discordId, w) => {
+        await warnings.insertOne({ guildId, discordId, ...w });
+        return warnings.countDocuments({ guildId, discordId });
       },
-      remove: async (discordId, id) => (await warnings.deleteOne({ discordId, id })).deletedCount > 0,
-      clear: async (discordId) => (await warnings.deleteMany({ discordId })).deletedCount,
+      remove: async (guildId, discordId, id) => (await warnings.deleteOne({ guildId, discordId, id })).deletedCount > 0,
+      clear: async (guildId, discordId) => (await warnings.deleteMany({ guildId, discordId })).deletedCount,
     },
     tickets: {
       get: async (channelId) => clean(await tickets.findOne({ _id: channelId })),
-      findByOwner: async (ownerId) => {
-        const doc = await tickets.findOne({ ownerId });
+      findByOwner: async (guildId, ownerId) => {
+        const doc = await tickets.findOne({ guildId, ownerId });
         return doc ? { channelId: doc._id, ...clean(doc) } : null;
       },
       create: async (channelId, t) => { await tickets.insertOne({ _id: channelId, ...t }); },
@@ -96,8 +109,8 @@ async function mongoBackend(db) {
       /** Atomically mark as closing; returns the ticket, or null if it's gone or already closing. */
       startClosing: async (channelId) =>
         clean(await tickets.findOneAndUpdate({ _id: channelId, closing: { $ne: true } }, { $set: { closing: true } })),
-      nextNumber: async () =>
-        (await counters.findOneAndUpdate({ _id: 'ticket' }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' })).seq,
+      nextNumber: async (guildId) =>
+        (await counters.findOneAndUpdate({ _id: `ticket:${guildId}` }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' })).seq,
     },
   };
 }
@@ -105,7 +118,7 @@ async function mongoBackend(db) {
 // ---------------------------------------------------------------- In-memory / JSON file (dev & tests)
 
 export function memoryBackend(path = null) {
-  let data = { links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounter: 0 };
+  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {} };
   if (path) {
     mkdirSync(dirname(path), { recursive: true });
     try {
@@ -121,8 +134,17 @@ export function memoryBackend(path = null) {
   };
   const copy = (x) => (x ? structuredClone(x) : null);
 
+  const wkey = (g, d) => `${g}:${d}`;
   return {
     _data: data,
+    settings: {
+      get: async (g) => copy(data.settings[g]) ?? {},
+      update: async (g, patch) => {
+        const s = (data.settings[g] ??= {});
+        for (const [k, v] of Object.entries(patch)) (v === null || v === undefined ? delete s[k] : (s[k] = structuredClone(v)));
+        save();
+      },
+    },
     links: {
       get: async (id) => copy(data.links[id]),
       set: async (id, { robloxId, username }) => { data.links[id] = { robloxId: Number(robloxId), username, linkedAt: Date.now() }; save(); },
@@ -138,20 +160,20 @@ export function memoryBackend(path = null) {
       delete: async (id) => { delete data.pending[id]; save(); },
     },
     warnings: {
-      list: async (id) => copy(data.warnings[id] ?? []),
-      add: async (id, w) => { (data.warnings[id] ??= []).push({ ...w }); save(); return data.warnings[id].length; },
-      remove: async (id, wid) => {
-        const list = data.warnings[id] ?? [];
+      list: async (g, id) => copy(data.warnings[wkey(g, id)] ?? []),
+      add: async (g, id, w) => { const l = (data.warnings[wkey(g, id)] ??= []); l.push({ ...w }); save(); return l.length; },
+      remove: async (g, id, wid) => {
+        const list = data.warnings[wkey(g, id)] ?? [];
         const i = list.findIndex((w) => w.id === wid);
         if (i !== -1) { list.splice(i, 1); save(); }
         return i !== -1;
       },
-      clear: async (id) => { const n = data.warnings[id]?.length ?? 0; delete data.warnings[id]; save(); return n; },
+      clear: async (g, id) => { const n = data.warnings[wkey(g, id)]?.length ?? 0; delete data.warnings[wkey(g, id)]; save(); return n; },
     },
     tickets: {
       get: async (ch) => copy(data.tickets[ch]),
-      findByOwner: async (owner) => {
-        const ch = Object.keys(data.tickets).find((k) => data.tickets[k].ownerId === owner);
+      findByOwner: async (g, owner) => {
+        const ch = Object.keys(data.tickets).find((k) => data.tickets[k].guildId === g && data.tickets[k].ownerId === owner);
         return ch ? { channelId: ch, ...copy(data.tickets[ch]) } : null;
       },
       create: async (ch, t) => { data.tickets[ch] = { ...t }; save(); },
@@ -168,7 +190,7 @@ export function memoryBackend(path = null) {
         t.closing = true; save();
         return copy(t);
       },
-      nextNumber: async () => { data.ticketCounter += 1; save(); return data.ticketCounter; },
+      nextNumber: async (g) => { data.ticketCounters[g] = (data.ticketCounters[g] ?? 0) + 1; save(); return data.ticketCounters[g]; },
     },
   };
 }

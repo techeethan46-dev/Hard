@@ -3,6 +3,7 @@ import {
   PermissionFlagsBits, SlashCommandBuilder, TextInputBuilder, TextInputStyle, time,
 } from 'discord.js';
 import { config } from '../config.js';
+import { getSettings } from '../lib/settings.js';
 import { store } from '../lib/store.js';
 import { buildTranscript } from '../lib/transcript.js';
 import { colors, embed } from '../lib/ui.js';
@@ -27,8 +28,11 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName('remove').setDescription('(Staff) Remove someone from this ticket')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true)));
 
-export const isStaff = (member) =>
-  member.permissions.has(PermissionFlagsBits.ManageGuild) || config.supportRoleIds.some((id) => member.roles.cache.has(id));
+export async function isStaff(member) {
+  if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true;
+  const { supportRoles = [] } = await getSettings(member.guild.id);
+  return supportRoles.some((id) => member.roles.cache.has(id));
+}
 
 const ephemeral = (interaction, text, color = colors.bad) => {
   const payload = { flags: MessageFlags.Ephemeral, embeds: [embed(color).setDescription(text)] };
@@ -41,13 +45,13 @@ export async function execute(interaction) {
   const sub = interaction.options.getSubcommand();
 
   if (sub === 'close') {
-    if (ticket.ownerId !== interaction.user.id && !isStaff(interaction.member)) {
+    if (ticket.ownerId !== interaction.user.id && !(await isStaff(interaction.member))) {
       return ephemeral(interaction, 'Only the ticket owner or staff can close this ticket.');
     }
     return closeTicket(interaction, interaction.options.getString('reason'));
   }
 
-  if (!isStaff(interaction.member)) return ephemeral(interaction, 'Only staff can do that.');
+  if (!(await isStaff(interaction.member))) return ephemeral(interaction, 'Only staff can do that.');
   const user = interaction.options.getUser('member', true);
   if (sub === 'add') {
     await interaction.channel.permissionOverwrites.edit(user.id, Object.fromEntries(MEMBER_PERMS.map((p) => [permName(p), true])));
@@ -66,7 +70,7 @@ export async function handleButton(interaction) {
   if (!ticket) return ephemeral(interaction, 'This ticket no longer exists.');
 
   if (action === 'claim') {
-    if (!isStaff(interaction.member)) return ephemeral(interaction, 'Only staff can claim tickets.');
+    if (!(await isStaff(interaction.member))) return ephemeral(interaction, 'Only staff can claim tickets.');
     if (!(await store.tickets.claim(interaction.channelId, interaction.user.id))) {
       const current = await store.tickets.get(interaction.channelId);
       return ephemeral(interaction, `Already claimed by <@${current?.claimedBy}>.`);
@@ -76,7 +80,7 @@ export async function handleButton(interaction) {
   }
 
   if (action === 'close') {
-    if (ticket.ownerId !== interaction.user.id && !isStaff(interaction.member)) {
+    if (ticket.ownerId !== interaction.user.id && !(await isStaff(interaction.member))) {
       return ephemeral(interaction, 'Only the ticket owner or staff can close this ticket.');
     }
     return interaction.reply({
@@ -94,9 +98,10 @@ export async function handleButton(interaction) {
 async function showForm(interaction, typeId) {
   const type = config.ticketTypes.find((t) => t.id === typeId);
   if (!type) return ephemeral(interaction, 'This ticket type no longer exists. Ask staff to repost the panel.');
-  if (!config.channels.ticketCategory) return ephemeral(interaction, 'Tickets are not set up yet (TICKET_CATEGORY_ID is missing).');
+  const { ticketCategory } = await getSettings(interaction.guildId);
+  if (!ticketCategory) return ephemeral(interaction, 'Tickets are not set up yet. An admin can pick a ticket category with `/setup`.');
 
-  const existing = await store.tickets.findByOwner(interaction.user.id);
+  const existing = await store.tickets.findByOwner(interaction.guildId, interaction.user.id);
   if (existing) {
     if (interaction.guild.channels.cache.has(existing.channelId)) {
       return ephemeral(interaction, `You already have an open ticket: <#${existing.channelId}>. Please use that one.`, colors.warn);
@@ -124,23 +129,24 @@ export async function handleModal(interaction) {
   opening.add(interaction.user.id);
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const number = await store.tickets.nextNumber();
+    const { ticketCategory, supportRoles = [] } = await getSettings(interaction.guildId);
+    const number = await store.tickets.nextNumber(interaction.guildId);
     const me = interaction.guild.members.me;
 
     const channel = await interaction.guild.channels.create({
       name: `${type.id}-${String(number).padStart(4, '0')}`,
       type: ChannelType.GuildText,
-      parent: config.channels.ticketCategory,
+      parent: ticketCategory,
       topic: `${type.label} ticket for ${interaction.user.tag} (${interaction.user.id})`,
       permissionOverwrites: [
         { id: interaction.guild.roles.everyone.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
         { id: interaction.user.id, type: OverwriteType.Member, allow: MEMBER_PERMS },
-        ...config.supportRoleIds.map((id) => ({ id, type: OverwriteType.Role, allow: MEMBER_PERMS })),
+        ...supportRoles.map((id) => ({ id, type: OverwriteType.Role, allow: MEMBER_PERMS })),
         { id: me.id, type: OverwriteType.Member, allow: [...MEMBER_PERMS, PermissionFlagsBits.ManageChannels] },
       ],
     });
 
-    await store.tickets.create(channel.id, { number, ownerId: interaction.user.id, type: type.id, claimedBy: null, openedAt: Date.now() });
+    await store.tickets.create(channel.id, { guildId: interaction.guildId, number, ownerId: interaction.user.id, type: type.id, claimedBy: null, openedAt: Date.now() });
 
     const questions = type.questions?.length ? type.questions : [{ label: 'How can we help?' }];
     const link = await store.links.get(interaction.user.id);
@@ -155,8 +161,8 @@ export async function handleModal(interaction) {
           value: (interaction.fields.getTextInputValue(`q${i}`) || '—').slice(0, 1024),
         })),
       );
-    const pings = [interaction.user.toString(), ...config.supportRoleIds.map((id) => `<@&${id}>`)].join(' ');
-    await channel.send({ content: pings, embeds: [e], components: [controls(false)], allowedMentions: { users: [interaction.user.id], roles: config.supportRoleIds } });
+    const pings = [interaction.user.toString(), ...supportRoles.map((id) => `<@&${id}>`)].join(' ');
+    await channel.send({ content: pings, embeds: [e], components: [controls(false)], allowedMentions: { users: [interaction.user.id], roles: supportRoles } });
 
     return interaction.editReply({ embeds: [embed(colors.ok).setDescription(`Your ticket is open: ${channel}`)] });
   } finally {
@@ -192,7 +198,8 @@ async function closeTicket(interaction, reason) {
         { name: 'Reason', value: reason || '—' },
       );
 
-    const log = config.channels.ticketLog && (await interaction.guild.channels.fetch(config.channels.ticketLog).catch(() => null));
+    const { ticketLogChannel } = await getSettings(interaction.guildId);
+    const log = ticketLogChannel && (await interaction.guild.channels.fetch(ticketLogChannel).catch(() => null));
     if (log?.isTextBased()) await log.send({ embeds: [summary], files: [file] });
 
     const owner = await interaction.client.users.fetch(ticket.ownerId).catch(() => null);

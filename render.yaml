@@ -12,6 +12,7 @@ services:
     startCommand: npm run deploy && npm start
     healthCheckPath: /health
     autoDeploy: true
+    # Only secrets live here. Roles, channels, game and group are set in Discord with /setup.
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -19,30 +20,9 @@ services:
         sync: false
       - key: CLIENT_ID
         sync: false
-      - key: GUILD_ID
-        sync: false
       - key: MONGODB_URI
         sync: false
-      - key: ROBLOX_PLACE_ID
-        sync: false
-      - key: ROBLOX_GROUP_ID
-        sync: false
-      - key: VERIFIED_ROLE_ID
-        sync: false
-      - key: UNVERIFIED_ROLE_ID
-        sync: false
-      - key: WELCOME_CHANNEL_ID
-        sync: false
-      - key: MOD_LOG_CHANNEL_ID
-        sync: false
-      - key: SUGGESTIONS_CHANNEL_ID
-        sync: false
-      - key: TICKET_CATEGORY_ID
-        sync: false
-      - key: TICKET_LOG_CHANNEL_ID
-        sync: false
-      - key: SUPPORT_ROLE_IDS
-        sync: false
+      # Optional: "Sign in with Roblox". Leave empty to use the profile-code method.
       - key: ROBLOX_OAUTH_CLIENT_ID
         sync: false
       - key: ROBLOX_OAUTH_CLIENT_SECRET

@@ -3,12 +3,10 @@ import assert from 'node:assert/strict';
 import { Collection, PermissionFlagsBits } from 'discord.js';
 
 process.env.DISCORD_TOKEN = 'x';
-process.env.TICKET_CATEGORY_ID = 'cat';
-process.env.TICKET_LOG_CHANNEL_ID = 'log';
-process.env.SUPPORT_ROLE_IDS = 'support';
 
 const { initStore } = await import('../src/lib/store.js');
 const store = await initStore({ jsonPath: null });
+await (await import('../src/lib/settings.js')).updateSettings('g1', { ticketCategory: 'cat', ticketLogChannel: 'log', supportRoles: ['support'] });
 const ticket = await import('../src/commands/ticket.js');
 const panel = await import('../src/commands/panel.js');
 
@@ -42,7 +40,7 @@ const guild = {
 
 function member(id, { staff = false } = {}) {
   return {
-    id,
+    id, guild,
     permissions: { has: () => false },
     roles: { cache: { has: (r) => staff && r === 'support' } },
   };
@@ -52,7 +50,7 @@ function interaction(user, extra = {}) {
   const calls = [];
   const rec = (kind) => async (p) => { calls.push({ kind, p }); };
   return {
-    calls, guild, guildId: 'g1', user: { id: user.id, tag: `${user.id}#0`, toString: () => `<@${user.id}>` },
+    calls, guild, guildId: 'g1', memberPermissions: { has: () => false }, user: { id: user.id, tag: `${user.id}#0`, toString: () => `<@${user.id}>` },
     member: user,
     client: { users: { fetch: async (id) => ({ send: async (m) => dms.push({ id, m }) }) } },
     isButton: () => Boolean(extra.button), deferred: false, replied: false,

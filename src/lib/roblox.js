@@ -49,6 +49,11 @@ export async function getGroupRole(userId, groupId) {
   return entry ? { name: entry.role.name, rank: entry.role.rank } : null;
 }
 
+/** Group info ({ id, name, memberCount }), or null if it doesn't exist. */
+export async function getGroup(groupId) {
+  return request(`https://groups.roblox.com/v1/groups/${groupId}`, { ttl: 10 * 60_000 }).catch(() => null);
+}
+
 export async function getUniverseId(placeId) {
   const json = await request(`https://apis.roblox.com/universes/v1/places/${placeId}/universe`, {
     ttl: 24 * 60 * 60_000,
@@ -71,3 +76,4 @@ export async function getGameIconUrl(universeId) {
 
 export const profileUrl = (userId) => `https://www.roblox.com/users/${userId}/profile`;
 export const gameUrl = (placeId) => `https://www.roblox.com/games/${placeId}`;
+export const groupUrl = (groupId) => `https://www.roblox.com/communities/${groupId}`;

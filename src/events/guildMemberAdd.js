@@ -1,5 +1,5 @@
 import { Events } from 'discord.js';
-import { config } from '../config.js';
+import { getSettings } from '../lib/settings.js';
 import { syncMember } from '../lib/roles.js';
 import { embed } from '../lib/ui.js';
 
@@ -10,8 +10,9 @@ export async function execute(member) {
   // new members get the Unverified role (if configured).
   await syncMember(member).catch((err) => console.error('Join sync failed:', err.message));
 
-  if (!config.channels.welcome) return;
-  const channel = await member.guild.channels.fetch(config.channels.welcome).catch(() => null);
+  const { welcomeChannel } = await getSettings(member.guild.id);
+  if (!welcomeChannel) return;
+  const channel = await member.guild.channels.fetch(welcomeChannel).catch(() => null);
   if (!channel?.isTextBased()) return;
   await channel.send({
     content: `${member}`,

@@ -4,9 +4,11 @@ import { REST, Routes } from 'discord.js';
 import { config, requireConfig } from './config.js';
 import { loadCommands } from './lib/loader.js';
 
-requireConfig('token', 'clientId', 'guildId');
+requireConfig('token', 'clientId');
 const commands = [...(await loadCommands()).values()].map((c) => c.data.toJSON());
 const rest = new REST().setToken(config.token);
-// Guild commands update instantly (global commands can take up to an hour).
-await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), { body: commands });
-console.log(`Registered ${commands.length} commands: ${commands.map((c) => '/' + c.name).join(' ')}`);
+const route = config.guildId
+  ? Routes.applicationGuildCommands(config.clientId, config.guildId) // one server, updates instantly
+  : Routes.applicationCommands(config.clientId); // every server the bot is in
+await rest.put(route, { body: commands });
+console.log(`Registered ${commands.length} commands ${config.guildId ? `on server ${config.guildId}` : 'globally'}: ${commands.map((c) => '/' + c.name).join(' ')}`);

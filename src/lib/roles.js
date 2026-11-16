@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { getSettings } from './settings.js';
 import { getGroupRole, getUser } from './roblox.js';
 import { store } from './store.js';
 
@@ -14,7 +15,9 @@ export function formatNickname(user) {
  * Returns a summary of what changed (and what couldn't be changed).
  */
 export async function syncMember(member) {
+  const settings = await getSettings(member.guild.id);
   const link = await store.links.get(member.id);
+  const bindings = settings.rankBindings ?? [];
   const result = { added: [], removed: [], nickname: null, groupRole: null, errors: [] };
   const me = member.guild.members.me;
 
@@ -32,22 +35,22 @@ export async function syncMember(member) {
   };
 
   const want = new Set();
-  const managed = new Set(config.groupRankBindings.map((b) => b.roleId));
-  if (config.roles.verified) managed.add(config.roles.verified);
-  if (config.roles.unverified) managed.add(config.roles.unverified);
+  const managed = new Set(bindings.map((b) => b.roleId));
+  if (settings.verifiedRole) managed.add(settings.verifiedRole);
+  if (settings.unverifiedRole) managed.add(settings.unverifiedRole);
 
   if (link) {
-    if (config.roles.verified) want.add(config.roles.verified);
-    if (config.groupId && config.groupRankBindings.length) {
-      const role = await getGroupRole(link.robloxId, config.groupId);
+    if (settings.verifiedRole) want.add(settings.verifiedRole);
+    if (settings.groupId && bindings.length) {
+      const role = await getGroupRole(link.robloxId, settings.groupId);
       result.groupRole = role;
       const rank = role?.rank ?? 0;
-      for (const b of config.groupRankBindings) {
+      for (const b of bindings) {
         if (rank >= b.minRank && rank <= b.maxRank) want.add(b.roleId);
       }
     }
-  } else if (config.roles.unverified) {
-    want.add(config.roles.unverified);
+  } else if (settings.unverifiedRole) {
+    want.add(settings.unverifiedRole);
   }
 
   for (const roleId of managed) {

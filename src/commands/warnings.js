@@ -22,7 +22,7 @@ export async function execute(interaction) {
   const sub = interaction.options.getSubcommand();
 
   if (sub === 'list') {
-    const list = await store.warnings.list(user.id);
+    const list = await store.warnings.list(interaction.guildId, user.id);
     const e = embed().setTitle(`Warnings for ${user.tag}`).setDescription(
       list.length
         ? list.map((w) => `\`${w.id}\` ${time(new Date(w.at), 'd')} by <@${w.moderatorId}> — ${w.reason}`).join('\n').slice(0, 4000)
@@ -34,10 +34,10 @@ export async function execute(interaction) {
   let msg;
   if (sub === 'remove') {
     const id = interaction.options.getString('id', true);
-    if (!(await store.warnings.remove(user.id, id))) return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.bad).setDescription('No warning with that ID.')] });
+    if (!(await store.warnings.remove(interaction.guildId, user.id, id))) return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.bad).setDescription('No warning with that ID.')] });
     msg = `Removed warning \`${id}\` from ${user}.`;
   } else {
-    const n = await store.warnings.clear(user.id);
+    const n = await store.warnings.clear(interaction.guildId, user.id);
     msg = `Cleared ${n} warning(s) for ${user}.`;
   }
   await modLog(interaction.guild, { action: sub === 'remove' ? 'Warning removed' : 'Warnings cleared', target: user,

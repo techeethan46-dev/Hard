@@ -1,5 +1,5 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
-import { config } from '../config.js';
+import { getSettings } from '../lib/settings.js';
 import { colors, embed } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
@@ -8,9 +8,10 @@ export const data = new SlashCommandBuilder()
   .addStringOption((o) => o.setName('idea').setDescription('Your suggestion').setRequired(true).setMaxLength(1000));
 
 export async function execute(interaction) {
-  const channel = config.channels.suggestions && (await interaction.guild.channels.fetch(config.channels.suggestions).catch(() => null));
+  const { suggestionsChannel } = await getSettings(interaction.guildId);
+  const channel = suggestionsChannel && (await interaction.guild.channels.fetch(suggestionsChannel).catch(() => null));
   if (!channel?.isTextBased()) {
-    return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.warn).setDescription('Suggestions are not set up yet.')] });
+    return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed(colors.warn).setDescription('Suggestions are not set up yet. An admin can pick a channel with `/setup`.')] });
   }
   const msg = await channel.send({
     embeds: [

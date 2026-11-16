@@ -3,9 +3,6 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.DISCORD_TOKEN = 'x';
-process.env.ROBLOX_GROUP_ID = '42';
-process.env.VERIFIED_ROLE_ID = 'r-verified';
-process.env.UNVERIFIED_ROLE_ID = 'r-unverified';
 
 const profiles = { 1001: { id: 1001, name: 'builderman', displayName: 'Builder', description: '', created: '2006-01-01T00:00:00Z' } };
 let groupRank = 0;
@@ -23,15 +20,16 @@ globalThis.fetch = async (url, opts = {}) => {
   throw new Error('unexpected fetch ' + url);
 };
 
-let config, store, verify, roles, loadCommands;
+let store, verify, roles, loadCommands;
 before(async () => {
-  ({ config } = await import('../src/config.js'));
-  config.groupRankBindings = [
-    { minRank: 1, maxRank: 254, roleId: 'r-member' },
-    { minRank: 200, maxRank: 255, roleId: 'r-staff' },
-  ];
   const s = await import('../src/lib/store.js');
   store = await s.initStore({ jsonPath: null }); // in-memory, never touches real data
+  // What an admin would pick in /setup
+  const { updateSettings } = await import('../src/lib/settings.js');
+  await updateSettings('g1', {
+    verifiedRole: 'r-verified', unverifiedRole: 'r-unverified', groupId: '42',
+    rankBindings: [{ minRank: 1, maxRank: 254, roleId: 'r-member' }, { minRank: 200, maxRank: 255, roleId: 'r-staff' }],
+  });
   verify = await import('../src/commands/verify.js');
   roles = await import('../src/lib/roles.js');
   ({ loadCommands } = await import('../src/lib/loader.js'));
@@ -43,7 +41,7 @@ function fakeMember(id = 'u1') {
   const held = new Set();
   const member = {
     id, nickname: null, manageable: true,
-    guild: { ownerId: 'owner', roles: { cache }, members: { me: { roles: { highest: { position: 10 } } } } },
+    guild: { id: 'g1', ownerId: 'owner', roles: { cache }, members: { me: { roles: { highest: { position: 10 } } } } },
     roles: {
       cache: { has: (r) => held.has(r) },
       add: async (r) => held.add(r),

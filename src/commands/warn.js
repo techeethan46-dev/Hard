@@ -16,7 +16,7 @@ export async function execute(interaction) {
   const reason = interaction.options.getString('reason', true);
   if (!(await checkTarget(interaction, target, 'warn'))) return;
 
-  const total = await store.warnings.add(target.id, { id: randomUUID().slice(0, 8), reason, moderatorId: interaction.user.id, at: Date.now() });
+  const total = await store.warnings.add(interaction.guildId, target.id, { id: randomUUID().slice(0, 8), reason, moderatorId: interaction.user.id, at: Date.now() });
 
   await notify(target.user, interaction.guild, `You were warned: **${reason}**`);
   await modLog(interaction.guild, { action: 'Warn', target: target.user, moderator: interaction.user, reason,

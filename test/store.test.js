@@ -41,29 +41,42 @@ for (const [name, init] of backends) {
       assert.equal(await store.pending.get('d1'), null);
     });
 
-    test('warnings', async () => {
-      assert.equal(await store.warnings.add('d2', { id: 'w1', reason: 'a', moderatorId: 'm', at: 1 }), 1);
-      assert.equal(await store.warnings.add('d2', { id: 'w2', reason: 'b', moderatorId: 'm', at: 2 }), 2);
-      assert.deepEqual((await store.warnings.list('d2')).map((w) => w.id), ['w1', 'w2']);
-      assert.equal(await store.warnings.remove('d2', 'w1'), true);
-      assert.equal(await store.warnings.remove('d2', 'nope'), false);
-      assert.equal(await store.warnings.clear('d2'), 1);
-      assert.deepEqual(await store.warnings.list('d2'), []);
+    test('settings: partial updates and clearing', async () => {
+      assert.deepEqual(await store.settings.get('g1'), {});
+      await store.settings.update('g1', { verifiedRole: 'r1', supportRoles: ['a', 'b'] });
+      await store.settings.update('g1', { welcomeChannel: 'c1' });
+      await store.settings.update('g1', { verifiedRole: null });
+      assert.deepEqual(await store.settings.get('g1'), { supportRoles: ['a', 'b'], welcomeChannel: 'c1' });
+      assert.deepEqual(await store.settings.get('g2'), {});
+    });
+
+    test('warnings are per server', async () => {
+      assert.equal(await store.warnings.add('g1', 'd2', { id: 'w1', reason: 'a', moderatorId: 'm', at: 1 }), 1);
+      assert.equal(await store.warnings.add('g1', 'd2', { id: 'w2', reason: 'b', moderatorId: 'm', at: 2 }), 2);
+      assert.equal(await store.warnings.add('g2', 'd2', { id: 'w3', reason: 'c', moderatorId: 'm', at: 3 }), 1);
+      assert.deepEqual((await store.warnings.list('g1', 'd2')).map((w) => w.id), ['w1', 'w2']);
+      assert.equal(await store.warnings.remove('g1', 'd2', 'w1'), true);
+      assert.equal(await store.warnings.remove('g1', 'd2', 'w3'), false);
+      assert.equal(await store.warnings.clear('g1', 'd2'), 1);
+      assert.deepEqual(await store.warnings.list('g1', 'd2'), []);
+      assert.equal((await store.warnings.list('g2', 'd2')).length, 1);
     });
 
     test('tickets: numbering, claim once, close once', async () => {
-      const n1 = await store.tickets.nextNumber();
-      const n2 = await store.tickets.nextNumber();
+      const n1 = await store.tickets.nextNumber('g1');
+      const n2 = await store.tickets.nextNumber('g1');
       assert.equal(n2, n1 + 1);
-      await store.tickets.create('c1', { number: n1, ownerId: 'p', type: 'bug', claimedBy: null, openedAt: 1 });
-      assert.equal((await store.tickets.findByOwner('p')).channelId, 'c1');
+      assert.equal(await store.tickets.nextNumber('g2'), 1); // each server counts from 1
+      await store.tickets.create('c1', { guildId: 'g1', number: n1, ownerId: 'p', type: 'bug', claimedBy: null, openedAt: 1 });
+      assert.equal((await store.tickets.findByOwner('g1', 'p')).channelId, 'c1');
+      assert.equal(await store.tickets.findByOwner('g2', 'p'), null);
       assert.equal(await store.tickets.claim('c1', 's1'), true);
       assert.equal(await store.tickets.claim('c1', 's2'), false);
       assert.equal((await store.tickets.get('c1')).claimedBy, 's1');
       const [a, b] = await Promise.all([store.tickets.startClosing('c1'), store.tickets.startClosing('c1')]);
       assert.equal([a, b].filter(Boolean).length, 1);
       await store.tickets.delete('c1');
-      assert.equal(await store.tickets.findByOwner('p'), null);
+      assert.equal(await store.tickets.findByOwner('g1', 'p'), null);
     });
   });
 }

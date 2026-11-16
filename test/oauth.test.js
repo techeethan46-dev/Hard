@@ -6,7 +6,6 @@ process.env.DISCORD_TOKEN = 'x';
 process.env.ROBLOX_OAUTH_CLIENT_ID = 'cid';
 process.env.ROBLOX_OAUTH_CLIENT_SECRET = 'secret';
 process.env.PUBLIC_URL = 'https://bot.example.com/';
-process.env.VERIFIED_ROLE_ID = 'r-verified';
 
 const sent = [];
 globalThis.fetch = async (url, opts = {}) => {
@@ -21,6 +20,7 @@ globalThis.fetch = async (url, opts = {}) => {
 const { oauthEnabled } = await import('../src/config.js');
 const { initStore } = await import('../src/lib/store.js');
 const store = await initStore({ jsonPath: null });
+await (await import('../src/lib/settings.js')).updateSettings('g1', { verifiedRole: 'r-verified' });
 const { createAuthUrl } = await import('../src/lib/oauth.js');
 const { handleCallback } = await import('../src/web/server.js');
 
@@ -28,7 +28,7 @@ function fakeClient() {
   const held = new Set();
   const member = {
     id: 'd1', nickname: null, manageable: true,
-    guild: { ownerId: 'o', roles: { cache: new Map([['r-verified', { id: 'r-verified', position: 1 }]]) }, members: { me: { roles: { highest: { position: 5 } } } } },
+    guild: { id: 'g1', ownerId: 'o', roles: { cache: new Map([['r-verified', { id: 'r-verified', position: 1 }]]) }, members: { me: { roles: { highest: { position: 5 } } } } },
     roles: { cache: { has: (r) => held.has(r) }, add: async (r) => held.add(r), remove: async (r) => held.delete(r) },
     setNickname: async (n) => { member.nickname = n; },
   };

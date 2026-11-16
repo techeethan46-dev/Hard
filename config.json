@@ -1,26 +1,6 @@
 {
   "nicknameFormat": "{displayName} (@{username})",
   "statusUpdateSeconds": 120,
-  "groupRankBindings": [
-    {
-      "minRank": 1,
-      "maxRank": 254,
-      "roleId": "",
-      "_comment": "Any group member"
-    },
-    {
-      "minRank": 200,
-      "maxRank": 254,
-      "roleId": "",
-      "_comment": "Example: game staff"
-    },
-    {
-      "minRank": 255,
-      "maxRank": 255,
-      "roleId": "",
-      "_comment": "Group owner"
-    }
-  ],
   "ticketTypes": [
     {
       "id": "support",

@@ -1,5 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, time } from 'discord.js';
-import { config } from '../config.js';
+import { getSettings } from '../lib/settings.js';
 import { gameUrl, getGame, getGameIconUrl, getUniverseId } from '../lib/roblox.js';
 import { colors, embed } from '../lib/ui.js';
 
@@ -8,17 +8,18 @@ export const data = new SlashCommandBuilder().setName('game').setDescription('Li
 const n = (x) => Number(x ?? 0).toLocaleString('en-US');
 
 export async function execute(interaction) {
-  if (!config.placeId) {
-    return interaction.reply({ embeds: [embed(colors.warn).setDescription('ROBLOX_PLACE_ID is not set in .env.')] });
+  const { placeId } = await getSettings(interaction.guildId);
+  if (!placeId) {
+    return interaction.reply({ embeds: [embed(colors.warn).setDescription('No game is set up yet. An admin can add it with `/setup`.')] });
   }
   await interaction.deferReply();
-  const universeId = await getUniverseId(config.placeId);
+  const universeId = await getUniverseId(placeId);
   const game = universeId && (await getGame(universeId));
   if (!game) return interaction.editReply({ embeds: [embed(colors.bad).setDescription("Couldn't load the game from Roblox.")] });
 
   const e = embed()
     .setTitle(game.name)
-    .setURL(gameUrl(config.placeId))
+    .setURL(gameUrl(placeId))
     .setThumbnail(await getGameIconUrl(universeId))
     .setDescription((game.description ?? '').slice(0, 300) || null)
     .addFields(
@@ -29,7 +30,7 @@ export async function execute(interaction) {
       { name: 'Last updated', value: time(new Date(game.updated), 'R'), inline: true },
     );
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setLabel('Play').setStyle(ButtonStyle.Link).setURL(gameUrl(config.placeId)),
+    new ButtonBuilder().setLabel('Play').setStyle(ButtonStyle.Link).setURL(gameUrl(placeId)),
   );
   return interaction.editReply({ embeds: [e], components: [row] });
 }
