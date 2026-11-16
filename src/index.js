@@ -1,6 +1,6 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { readdirSync } from 'node:fs';
-import { config, requireConfig } from './config.js';
+import { config, oauthEnabled, requireConfig } from './config.js';
 import { loadCommands } from './lib/loader.js';
 
 requireConfig('token');
@@ -21,3 +21,7 @@ for (const file of readdirSync(eventsDir).filter((f) => f.endsWith('.js'))) {
 
 process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
 await client.login(config.token);
+if (oauthEnabled()) {
+  const { startWebServer } = await import('./web/server.js');
+  startWebServer(client);
+}

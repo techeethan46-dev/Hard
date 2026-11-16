@@ -1,12 +1,21 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import {
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ModalBuilder, SlashCommandBuilder,
+  TextInputBuilder, TextInputStyle,
+} from 'discord.js';
 import { randomInt } from 'node:crypto';
+import { oauthEnabled } from '../config.js';
+import { createAuthUrl } from '../lib/oauth.js';
 import { getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
 import { db } from '../lib/store.js';
-import { syncMember } from '../lib/roles.js';
+import { linkAccount } from '../lib/verification.js';
 import { colors, embed } from '../lib/ui.js';
 
+// Two ways to verify:
+//  1. "Sign in with Roblox" (OAuth) — one click + approve. Used when ROBLOX_OAUTH_* and PUBLIC_URL are set.
+//  2. Profile code — paste a word code into your Roblox About. Fallback, or `/verify username:<name>`.
+
 const CODE_TTL_MS = 15 * 60_000;
-// Plain words survive Roblox's chat filter better than random letters/numbers.
+// Plain words survive Roblox's text filter better than random letters/numbers.
 const WORDS = [
   'apple', 'banana', 'castle', 'dragon', 'forest', 'galaxy', 'harbor', 'island', 'jungle', 'kitten',
   'lantern', 'meadow', 'nebula', 'ocean', 'pepper', 'rocket', 'silver', 'thunder', 'valley', 'window',
@@ -18,12 +27,61 @@ export const data = new SlashCommandBuilder()
   .setName('verify')
   .setDescription('Link your Roblox account to Discord')
   .addStringOption((o) =>
-    o.setName('username').setDescription('Your Roblox username').setRequired(true).setMaxLength(20),
+    o.setName('username').setDescription('Your Roblox username (only needed for the profile-code method)').setMaxLength(20),
   );
 
 export async function execute(interaction) {
+  const username = interaction.options.getString('username');
+  if (username) return startCodeFlow(interaction, username);
+  return start(interaction);
+}
+
+export async function handleButton(interaction) {
+  if (interaction.customId === 'verify:start') return start(interaction); // from the /panel verify button
+  if (interaction.customId === 'verify:check') return checkCode(interaction);
+}
+
+export async function handleModal(interaction) {
+  return startCodeFlow(interaction, interaction.fields.getTextInputValue('username'));
+}
+
+/** Default path: OAuth if configured, otherwise ask for a username and use the code method. */
+async function start(interaction) {
+  if (!oauthEnabled()) {
+    const modal = new ModalBuilder().setCustomId('verify:modal').setTitle('Verify your Roblox account').addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('username').setLabel('Roblox username').setStyle(TextInputStyle.Short)
+          .setMinLength(3).setMaxLength(20).setRequired(true),
+      ),
+    );
+    return interaction.showModal(modal);
+  }
+
+  const url = createAuthUrl({
+    discordId: interaction.user.id,
+    guildId: interaction.guildId,
+    // Update this ephemeral message once they finish signing in (the token is valid for 15 minutes).
+    onDone: (roblox, result) => interaction.editReply({ embeds: [verifiedEmbed(roblox.username, result)], components: [] }),
+  });
+  const linked = db.data.links[interaction.user.id];
+  const e = embed()
+    .setTitle('Verify with Roblox')
+    .setDescription(
+      [
+        'Click **Sign in with Roblox**, log in if asked, and press **Confirm**. That\'s it — you\'ll get your roles right away.',
+        linked ? `\nYou're currently linked to **${linked.username}**. Signing in with another account will switch it.` : '',
+        '\n-# The link is just for you and expires in 10 minutes. We only see your username and avatar — never your password.',
+      ].join(''),
+    );
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setLabel('Sign in with Roblox').setStyle(ButtonStyle.Link).setURL(url),
+  );
+  return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [e], components: [row] });
+}
+
+async function startCodeFlow(interaction, username) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const user = await getUserByUsername(interaction.options.getString('username', true));
+  const user = await getUserByUsername(username);
   if (!user) {
     return interaction.editReply({ embeds: [embed(colors.bad).setDescription('No Roblox user has that username.')] });
   }
@@ -58,7 +116,7 @@ export async function execute(interaction) {
   return interaction.editReply({ embeds: [e], components: [row] });
 }
 
-export async function handleButton(interaction) {
+async function checkCode(interaction) {
   const pending = db.data.pending[interaction.user.id];
   if (!pending || pending.expiresAt < Date.now()) {
     delete db.data.pending[interaction.user.id];
@@ -83,14 +141,14 @@ export async function handleButton(interaction) {
     });
   }
 
-  db.data.links[interaction.user.id] = { robloxId: pending.robloxId, username: pending.username, linkedAt: Date.now() };
-  delete db.data.pending[interaction.user.id];
-  db.save();
-
-  const result = await syncMember(interaction.member);
-  const e = embed(colors.ok)
-    .setTitle('Verified!')
-    .setDescription(`Your Discord account is now linked to **${pending.username}**. You can remove the code from your profile.`);
-  if (result.errors.length) e.addFields({ name: 'Notes', value: result.errors.join('\n') });
+  const result = await linkAccount(interaction.member, pending);
+  const e = verifiedEmbed(pending.username, result);
+  e.setDescription(`${e.data.description} You can remove the code from your profile.`);
   return interaction.editReply({ embeds: [e], components: [] });
+}
+
+function verifiedEmbed(username, result) {
+  const e = embed(colors.ok).setTitle('Verified!').setDescription(`Your Discord account is now linked to **${username}**.`);
+  if (result.errors.length) e.addFields({ name: 'Notes', value: result.errors.join('\n') });
+  return e;
 }

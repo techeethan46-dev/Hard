@@ -62,7 +62,8 @@ function fakeInteraction(member, options = {}) {
   const rec = (kind) => async (p) => { calls.push({ kind, p }); };
   return {
     user: { id: member.id }, member, calls,
-    options: { getString: (k) => options[k] },
+    customId: options.customId, guildId: 'g1',
+    options: { getString: (k) => options[k] ?? null },
     deferReply: rec('deferReply'), deferUpdate: rec('deferUpdate'), editReply: rec('editReply'),
     followUp: rec('followUp'), update: rec('update'), reply: rec('reply'),
   };
@@ -97,14 +98,14 @@ test('full verify flow: wrong code is rejected, right code links and syncs roles
   assert.match(pending.code, /^(\w+ ){5}\w+$/);
 
   // Code not in profile yet
-  const i2 = fakeInteraction(m);
+  const i2 = fakeInteraction(m, { customId: 'verify:check' });
   await verify.handleButton(i2);
   assert.equal(i2.calls.at(-1).kind, 'followUp');
   assert.ok(!db.data.links.u1);
 
   // Code present (with odd casing/spacing, as people paste it)
   profiles[1001].description = `hi!  ${pending.code.toUpperCase().replace(/ /g, '   ')} bye`;
-  const i3 = fakeInteraction(m);
+  const i3 = fakeInteraction(m, { customId: 'verify:check' });
   await verify.handleButton(i3);
   assert.match(lastText(i3), /Verified!/);
   assert.equal(db.data.links.u1.robloxId, 1001);
@@ -125,7 +126,7 @@ test('demotion in the group removes the staff role on resync', async () => {
 test('expired code is refused', async () => {
   const m = fakeMember('u2');
   db.data.pending.u2 = { robloxId: 1001, username: 'builderman', code: 'a b c', expiresAt: Date.now() - 1 };
-  const i = fakeInteraction(m);
+  const i = fakeInteraction(m, { customId: 'verify:check' });
   await verify.handleButton(i);
   assert.match(lastText(i), /expired/);
   assert.ok(!db.data.links.u2);
@@ -136,4 +137,13 @@ test('roles above the bot are reported, not crashed on', async () => {
   m.guild.roles.cache.get('r-unverified').position = 99;
   const r = await roles.syncMember(m);
   assert.match(r.errors[0], /move the bot's role above it/);
+});
+
+test('without OAuth configured, /verify with no username asks for it in a form', async () => {
+  const m = fakeMember('u4');
+  const i = fakeInteraction(m);
+  i.showModal = async (modal) => i.calls.push({ kind: 'modal', p: modal.toJSON() });
+  await verify.execute(i);
+  assert.equal(i.calls[0].kind, 'modal');
+  assert.equal(i.calls[0].p.custom_id, 'verify:modal');
 });

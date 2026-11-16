@@ -14,6 +14,15 @@ export const config = {
     welcome: env('WELCOME_CHANNEL_ID'),
     modLog: env('MOD_LOG_CHANNEL_ID'),
     suggestions: env('SUGGESTIONS_CHANNEL_ID'),
+    ticketCategory: env('TICKET_CATEGORY_ID'),
+    ticketLog: env('TICKET_LOG_CHANNEL_ID'),
+  },
+  supportRoleIds: (env('SUPPORT_ROLE_IDS') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  oauth: {
+    clientId: env('ROBLOX_OAUTH_CLIENT_ID'),
+    clientSecret: env('ROBLOX_OAUTH_CLIENT_SECRET'),
+    publicUrl: env('PUBLIC_URL')?.replace(/\/+$/, '') ?? null,
+    port: Number(env('PORT')) || 3000,
   },
   roles: {
     verified: env('VERIFIED_ROLE_ID'),
@@ -21,6 +30,7 @@ export const config = {
   },
   nicknameFormat: file.nicknameFormat ?? '{displayName} (@{username})',
   statusUpdateSeconds: Math.max(60, Number(file.statusUpdateSeconds) || 120),
+  ticketTypes: file.ticketTypes ?? [],
   // Ignore bindings left with an empty roleId.
   groupRankBindings: (file.groupRankBindings ?? []).filter((b) => b.roleId),
 };
@@ -32,3 +42,6 @@ export function requireConfig(...keys) {
     process.exit(1);
   }
 }
+
+/** "Sign in with Roblox" is used when all three OAuth settings are present. */
+export const oauthEnabled = () => Boolean(config.oauth.clientId && config.oauth.clientSecret && config.oauth.publicUrl);

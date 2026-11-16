@@ -2,8 +2,97 @@
   "nicknameFormat": "{displayName} (@{username})",
   "statusUpdateSeconds": 120,
   "groupRankBindings": [
-    { "minRank": 1,   "maxRank": 254, "roleId": "", "_comment": "Any group member" },
-    { "minRank": 200, "maxRank": 254, "roleId": "", "_comment": "Example: game staff" },
-    { "minRank": 255, "maxRank": 255, "roleId": "", "_comment": "Group owner" }
+    {
+      "minRank": 1,
+      "maxRank": 254,
+      "roleId": "",
+      "_comment": "Any group member"
+    },
+    {
+      "minRank": 200,
+      "maxRank": 254,
+      "roleId": "",
+      "_comment": "Example: game staff"
+    },
+    {
+      "minRank": 255,
+      "maxRank": 255,
+      "roleId": "",
+      "_comment": "Group owner"
+    }
+  ],
+  "ticketTypes": [
+    {
+      "id": "support",
+      "label": "General Support",
+      "emoji": "❓",
+      "style": "Primary",
+      "questions": [
+        {
+          "label": "How can we help?",
+          "style": "paragraph",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "label": "Report a Player",
+      "emoji": "🚨",
+      "style": "Danger",
+      "questions": [
+        {
+          "label": "Player's Roblox username",
+          "style": "short",
+          "required": true
+        },
+        {
+          "label": "What happened?",
+          "style": "paragraph",
+          "required": true
+        },
+        {
+          "label": "Evidence (video/screenshot links)",
+          "style": "paragraph",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "bug",
+      "label": "Bug Report",
+      "emoji": "🐛",
+      "style": "Secondary",
+      "questions": [
+        {
+          "label": "What's the bug?",
+          "style": "paragraph",
+          "required": true
+        },
+        {
+          "label": "How can we reproduce it?",
+          "style": "paragraph",
+          "required": false
+        },
+        {
+          "label": "Device (PC, mobile, console...)",
+          "style": "short",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "purchase",
+      "label": "Purchase Issue",
+      "emoji": "💸",
+      "style": "Success",
+      "questions": [
+        {
+          "label": "What did you buy and when?",
+          "style": "paragraph",
+          "required": true
+        }
+      ]
+    }
   ]
 }

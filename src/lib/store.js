@@ -31,4 +31,6 @@ export const db = new JsonStore(`${dataDir}db.json`, {
   links: {},
   pending: {},
   warnings: {}, // discordId -> [{ id, reason, moderatorId, at }]
+  tickets: {}, // channelId -> { number, ownerId, type, claimedBy, openedAt }
+  ticketCounter: 0,
 });

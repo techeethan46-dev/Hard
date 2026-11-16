@@ -7,11 +7,13 @@ export async function execute(interaction, commands) {
   if (!interaction.inGuild()) return;
   let command;
   if (interaction.isChatInputCommand()) command = commands.get(interaction.commandName);
-  else if (interaction.isButton()) command = commands.get(interaction.customId.split(':')[0]);
+  // Buttons and modals are routed by customId prefix: "ticket:close" -> commands/ticket.js
+  else if (interaction.isButton() || interaction.isModalSubmit()) command = commands.get(interaction.customId.split(':')[0]);
   if (!command) return;
 
   try {
     if (interaction.isButton()) await command.handleButton?.(interaction);
+    else if (interaction.isModalSubmit()) await command.handleModal?.(interaction);
     else await command.execute(interaction);
   } catch (err) {
     console.error(`Error in ${interaction.commandName ?? interaction.customId}:`, err);
