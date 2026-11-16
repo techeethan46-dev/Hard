@@ -1,9 +1,8 @@
 # Roblox Community Bot
 
-A Discord bot for a Roblox game community: Roblox verification, group rank roles, tickets, game stats,
-suggestions and moderation. Built with [discord.js](https://discord.js.org) v14 and MongoDB, ready for Render.
+A Discord bot for a Roblox game community: Roblox verification, tickets, game stats, suggestions and moderation. Built with [discord.js](https://discord.js.org) v14 and MongoDB, ready for Render.
 
-Everything server-specific (roles, channels, the game, the group) is set **inside Discord with `/setup`**.
+Everything server-specific (roles, channels, the game) is set **inside Discord with `/setup`**.
 No IDs to copy.
 
 ## Getting it running
@@ -29,7 +28,8 @@ appear the first time.
 
 ## `/setup`
 
-An admin (needs *Manage Server*) runs `/setup` and goes through the steps. Every pick saves instantly.
+An admin (needs *Manage Server*) runs `/setup` and goes through the steps with **Back / Next / Clear**.
+Every pick saves instantly. After the last step, a summary page shows everything with a **Finish** button.
 
 | Step | What it does |
 |---|---|
@@ -37,15 +37,13 @@ An admin (needs *Manage Server*) runs `/setup` and goes through the steps. Every
 | 🔒 Unverified role | Optional: given until they verify |
 | 🛟 Support staff roles | Can see and answer tickets |
 | 🎮 Roblox game | Paste the game link: powers `/game` and the live player count |
-| 👥 Roblox group | Paste the group link: used for rank roles and `/whois` |
-| 🏅 Group rank roles | Pick a role, type a rank range. Example: ranks 200–254 → @Staff |
 | 👋 Welcome channel | New members are greeted here |
 | 🛡️ Mod log channel | Every warn/timeout/kick/ban is logged |
 | 💡 Suggestions channel | Where `/suggest` posts |
 | 🎫 Ticket category | Where ticket channels are created |
 | 📜 Ticket log channel | Transcripts of closed tickets |
 
-The **Overview** page also runs checks and tells you what to fix in plain words, like "drag the bot's role above
+The summary page also runs checks and tells you what to fix in plain words, like "drag the bot's role above
 @Verified" or "the bot can't post in #mod-log".
 
 After setup: run `/panel verify` in your verify channel and `/panel tickets` in your support channel.
@@ -58,7 +56,7 @@ Skip any step you don't need; that feature just stays off.
 | `/verify` or the **Verify** button | Everyone | Links a Roblox account (see below) |
 | `/update [member]` | Everyone (staff for others) | Re-syncs roles and nickname, e.g. after a promotion |
 | `/unverify` | Everyone | Unlinks your Roblox account |
-| `/whois [member] [username]` | Everyone | Roblox profile, group rank and linked Discord account |
+| `/whois [member] [username]` | Everyone | Roblox profile and linked Discord account |
 | `/game` | Everyone | Players online, visits, favorites, last update, Play button |
 | `/suggest idea` | Everyone | Posts an idea with 👍/👎 and a discussion thread |
 | Ticket buttons, `/ticket close` | Everyone | Opens a private support channel |

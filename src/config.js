@@ -10,7 +10,7 @@ export const config = {
   // Optional. Set it to register commands on one server only (instant updates while developing).
   // Leave it blank to register them everywhere the bot is invited.
   guildId: env('GUILD_ID'),
-  // Roles, channels, game and group are NOT set here: run /setup in Discord.
+  // Roles, channels and the game are NOT set here: run /setup in Discord.
   oauth: {
     clientId: env('ROBLOX_OAUTH_CLIENT_ID'),
     clientSecret: env('ROBLOX_OAUTH_CLIENT_SECRET'),

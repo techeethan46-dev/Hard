@@ -1,6 +1,5 @@
 import { SlashCommandBuilder, time } from 'discord.js';
-import { getSettings } from '../lib/settings.js';
-import { getGroupRole, getHeadshotUrl, getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
+import { getHeadshotUrl, getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
 import { store } from '../lib/store.js';
 import { colors, embed } from '../lib/ui.js';
 
@@ -40,11 +39,6 @@ export async function execute(interaction) {
       { name: 'Joined Roblox', value: time(new Date(user.created), 'D'), inline: true },
       { name: 'Discord', value: discordId ? `<@${discordId}>` : 'Not linked', inline: true },
     );
-  const { groupId } = await getSettings(interaction.guildId);
-  if (groupId) {
-    const role = await getGroupRole(user.id, groupId);
-    e.addFields({ name: 'Group rank', value: role ? `${role.name} (${role.rank})` : 'Not in group', inline: true });
-  }
   if (user.isBanned) e.setColor(colors.bad).setFooter({ text: 'This account is banned on Roblox' });
   return interaction.editReply({ embeds: [e] });
 }

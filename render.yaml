@@ -12,7 +12,7 @@ services:
     startCommand: npm run deploy && npm start
     healthCheckPath: /health
     autoDeploy: true
-    # Only secrets live here. Roles, channels, game and group are set in Discord with /setup.
+    # Only secrets live here. Roles, channels and the game are set in Discord with /setup.
     envVars:
       - key: NODE_VERSION
         value: "22"

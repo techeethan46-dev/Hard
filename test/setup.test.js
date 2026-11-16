@@ -8,7 +8,6 @@ globalThis.fetch = async (url) => {
   url = String(url);
   if (url.includes('/universes/v1/places/920587237/universe')) return ok({ universeId: 994732206 });
   if (url.includes('games.roblox.com/v1/games?universeIds=994732206')) return ok({ data: [{ name: 'Cool Game', playing: 5 }] });
-  if (url.includes('groups.roblox.com/v1/groups/4199740')) return ok({ id: 4199740, name: 'Cool Group' });
   return { ok: false, status: 404 };
 };
 
@@ -56,6 +55,15 @@ test('/setup starts at step 1 on a fresh server', async () => {
   assert.match(x.calls[0].p.embeds[0].toJSON().title, /Step 1 of/);
 });
 
+test('steps have Back / Next / Clear only (no Overview button)', async () => {
+  for (let step = 0; step < STEPS.length; step++) {
+    const msg = await render(guild, step);
+    const labels = msg.components.at(-1).toJSON().components.map((c) => c.label);
+    assert.deepEqual(labels, ['Back', 'Next', 'Clear']);
+  }
+  assert.ok(!STEPS.some((s) => /group/i.test(s.title)));
+});
+
 test('picking a role saves it and moves to the next step', async () => {
   const x = i('setup:set:0', { values: ['verified'] });
   await setup.handleSelect(x);
@@ -76,35 +84,7 @@ test('game link is checked with Roblox and saved with its name', async () => {
   assert.equal(s.gameName, 'Cool Game');
 });
 
-test('group link works with the new "communities" URLs', async () => {
-  const step = STEPS.findIndex((s) => s.key === 'groupId');
-  await setup.handleModal(i(`setup:link:${step}`, { fields: { getTextInputValue: () => 'https://www.roblox.com/communities/4199740/Cool-Group#!/about' } }));
-  assert.equal((await getSettings('g1')).groupName, 'Cool Group');
-});
 
-test('rank roles: add, validate, replace, remove', async () => {
-  const step = STEPS.findIndex((s) => s.key === 'rankBindings');
-  const ranks = (min, max) => ({ fields: { getTextInputValue: (k) => (k === 'min' ? min : max) } });
-
-  const pick = i(`setup:bindrole:${step}`, { values: ['staff'] });
-  await setup.handleSelect(pick);
-  assert.equal(pick.calls[0].kind, 'showModal');
-
-  const wrong = i(`setup:bind:${step}:staff`, ranks('250', '10'));
-  await setup.handleModal(wrong);
-  assert.match(desc(wrong.calls[0]), /lowest first/);
-
-  await setup.handleModal(i(`setup:bind:${step}:staff`, ranks('200', '254')));
-  await setup.handleModal(i(`setup:bind:${step}:verified`, ranks('1', '255')));
-  await setup.handleModal(i(`setup:bind:${step}:staff`, ranks('100', '254'))); // replaces the first staff one
-  assert.deepEqual((await getSettings('g1')).rankBindings, [
-    { roleId: 'verified', minRank: 1, maxRank: 255 },
-    { roleId: 'staff', minRank: 100, maxRank: 254 },
-  ]);
-
-  await setup.handleSelect(i(`setup:unbind:${step}`, { values: ['0'] }));
-  assert.deepEqual((await getSettings('g1')).rankBindings.map((b) => b.roleId), ['staff']);
-});
 
 test('clear removes a setting', async () => {
   await setup.handleButton(i('setup:clear:0'));
