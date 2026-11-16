@@ -23,3 +23,26 @@ export async function setStreakBadge(member, streak) {
   await member.setNickname(value, streak ? `Chat streak: ${streak} days` : 'Chat streak ended');
   return true;
 }
+
+// ---------------------------------------------------------------- AFK tag: "[AFK] Superman [12🔥]"
+const AFK = /^\[AFK\]\s*/i;
+const AFK_TAG = '[AFK] ';
+export const stripAfk = (name) => (name ?? '').replace(AFK, '');
+
+export function withAfk(name, on) {
+  const badge = (name ?? '').match(BADGE)?.[0] ?? '';
+  const core = stripBadge(stripAfk(name));
+  const prefix = on ? AFK_TAG : '';
+  return `${prefix}${core.slice(0, MAX - prefix.length - badge.length).trimEnd()}${badge}`;
+}
+
+/** Adds or removes the [AFK] tag. Skips people the bot can't rename. */
+export async function setAfkTag(member, on) {
+  if (!member || member.id === member.guild.ownerId || !member.manageable) return false;
+  const next = withAfk(member.nickname ?? member.displayName, on);
+  const plain = member.user?.globalName ?? member.user?.username;
+  const value = !on && next === plain ? null : next;
+  if (value === member.nickname) return false;
+  await member.setNickname(value, on ? 'AFK' : 'Back from AFK');
+  return true;
+}

@@ -73,6 +73,9 @@ Skip any step you don't need; that feature just stays off.
 | `/streak` | Everyone | Your streak, restores left, and a Restore button when it broke |
 | `/xp set-level/give/reset` | Admins | Adjust someone's level, XP or streak |
 | `/raidmode on/off/status` | Admins | Turn raid mode on or off by hand |
+| `/roles create` | Admins | Build a self-role panel (buttons or dropdown, many or only-one) and post it |
+| `/sticky set/remove/list` | Moderators | Keep a message at the bottom of a channel |
+| `r!afk [reason]` | Everyone | Go AFK, e.g. `r!afk Too tired` |
 | `/suggest idea` | Everyone | Posts an idea with 👍/👎 and a discussion thread |
 | Ticket buttons, `/ticket close` | Everyone | Opens a private support channel |
 | `/ticket add/remove member` | Support staff | Brings someone into a ticket |
@@ -95,6 +98,20 @@ automatically.
 - Everyone gets **3 restores per calendar month**.
 - Days follow the timezone chosen in `/setup`.
 - The bot can't rename the server owner or anyone whose role is above the bot's, so they won't get a badge.
+
+## Self-roles, sticky messages and AFK
+
+**Self-roles:** `/roles create` opens a private builder. Pick up to 25 roles, choose **pick as many as they like** or
+**only one at a time** (picking one removes the others, good for regions or colors), choose **buttons** or a
+**dropdown**, edit the title and text, then press **Post here**. Roles with moderator/admin permissions, bot roles,
+and roles above the bot's role are blocked automatically. A role's emoji (if it has one) shows on its button.
+
+**Sticky messages:** `/sticky set` in a channel. The bot reposts it at the bottom a few seconds after chat goes
+quiet (at most every 15 seconds in a busy channel) and deletes the old copy, so there's only ever one.
+
+**AFK:** type `r!afk Too tired`. Your name becomes `[AFK] Superman` (the 🔥 streak badge stays). Anyone who pings
+you or replies to you gets "💤 Superman is AFK: Too tired · 2 hours ago" (once a minute per channel). Send any
+message to come back: you get a welcome-back card listing who pinged you, with jump links.
 
 ## AutoMod, raid protection and logs
 
