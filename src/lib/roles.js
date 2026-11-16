@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { getSettings } from './settings.js';
 import { getUser } from './roblox.js';
+import { withBadge } from './nickname.js';
 import { store } from './store.js';
 
 export function formatNickname(user) {
@@ -58,7 +59,8 @@ export async function syncMember(member) {
   if (link) {
     const user = await getUser(link.robloxId);
     if (user) {
-      const nick = formatNickname(user);
+      const stats = await store.stats.get(member.guild.id, member.id).catch(() => null);
+      const nick = withBadge(formatNickname(user), stats?.streak?.current ?? 0);
       if (member.id === member.guild.ownerId) {
         result.errors.push("Discord doesn't let bots change the server owner's nickname");
       } else if (!member.manageable) {

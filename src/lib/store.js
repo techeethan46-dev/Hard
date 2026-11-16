@@ -7,6 +7,7 @@
 //   store.settings  guildId -> everything chosen in /setup (roles, channels, game)
 //   store.warnings  per server + member: list of { id, reason, moderatorId, at }
 //   store.tickets   channelId -> { guildId, number, ownerId, type, claimedBy, openedAt, closing }
+//   store.stats     per server + member: { xp, streak: { current, best, lastDay, ... } } for levels and streaks
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -43,12 +44,16 @@ async function mongoBackend(db) {
   const tickets = db.collection('tickets');
   const counters = db.collection('counters');
   const settings = db.collection('guildSettings');
+  const stats = db.collection('memberStats');
 
   await Promise.all([
     links.createIndex({ robloxId: 1 }),
     pending.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }), // MongoDB deletes expired codes itself
     warnings.createIndex({ guildId: 1, discordId: 1, at: 1 }),
     tickets.createIndex({ guildId: 1, ownerId: 1 }),
+    stats.createIndex({ guildId: 1, xp: -1 }),
+    stats.createIndex({ guildId: 1, 'streak.current': -1 }),
+    stats.createIndex({ guildId: 1, 'streak.lastDay': 1 }),
   ]);
 
   // Stored with _id = Discord/channel ID; hand back plain objects without Mongo's fields.
@@ -59,7 +64,27 @@ async function mongoBackend(db) {
     return rest;
   };
 
+  const sid = (g, u) => `${g}:${u}`;
   return {
+    stats: {
+      get: async (g, u) => clean(await stats.findOne({ _id: sid(g, u) })),
+      /** Adds XP atomically and returns the updated record. */
+      addXp: async (g, u, amount) => clean(await stats.findOneAndUpdate(
+        { _id: sid(g, u) },
+        { $inc: { xp: amount }, $setOnInsert: { guildId: g, userId: u } },
+        { upsert: true, returnDocument: 'after' },
+      )),
+      set: async (g, u, patch) => {
+        await stats.updateOne({ _id: sid(g, u) }, { $set: { ...patch, guildId: g, userId: u } }, { upsert: true });
+      },
+      /** Top members by a field ('xp' or 'streak.current'). */
+      top: async (g, field, limit = 10) =>
+        (await stats.find({ guildId: g, [field]: { $gt: 0 } }).sort({ [field]: -1 }).limit(limit).toArray()).map(clean),
+      position: async (g, field, value) => 1 + (await stats.countDocuments({ guildId: g, [field]: { $gt: value } })),
+      /** Running streaks whose last chat day is before `day` (YYYY-MM-DD). */
+      staleStreaks: async (g, day) =>
+        (await stats.find({ guildId: g, 'streak.current': { $gt: 0 }, 'streak.lastDay': { $lt: day } }).toArray()).map(clean),
+    },
     settings: {
       get: async (guildId) => clean(await settings.findOne({ _id: guildId })) ?? {},
       update: async (guildId, patch) => {
@@ -118,7 +143,7 @@ async function mongoBackend(db) {
 // ---------------------------------------------------------------- In-memory / JSON file (dev & tests)
 
 export function memoryBackend(path = null) {
-  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {} };
+  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {}, stats: {} };
   if (path) {
     mkdirSync(dirname(path), { recursive: true });
     try {
@@ -135,8 +160,26 @@ export function memoryBackend(path = null) {
   const copy = (x) => (x ? structuredClone(x) : null);
 
   const wkey = (g, d) => `${g}:${d}`;
+  const field = (doc, path) => path.split('.').reduce((o, k) => o?.[k], doc) ?? 0;
+  const inGuild = (g) => Object.values(data.stats).filter((d) => d.guildId === g);
   return {
     _data: data,
+    stats: {
+      get: async (g, u) => copy(data.stats[wkey(g, u)]),
+      addXp: async (g, u, amount) => {
+        const d = (data.stats[wkey(g, u)] ??= { guildId: g, userId: u, xp: 0 });
+        d.xp = (d.xp ?? 0) + amount; save();
+        return copy(d);
+      },
+      set: async (g, u, patch) => {
+        Object.assign((data.stats[wkey(g, u)] ??= { guildId: g, userId: u }), structuredClone(patch)); save();
+      },
+      top: async (g, path, limit = 10) =>
+        inGuild(g).filter((d) => field(d, path) > 0).sort((a, b) => field(b, path) - field(a, path)).slice(0, limit).map(copy),
+      position: async (g, path, value) => 1 + inGuild(g).filter((d) => field(d, path) > value).length,
+      staleStreaks: async (g, day) =>
+        inGuild(g).filter((d) => d.streak?.current > 0 && d.streak.lastDay < day).map(copy),
+    },
     settings: {
       get: async (g) => copy(data.settings[g]) ?? {},
       update: async (g, patch) => {

@@ -1,6 +1,7 @@
 import { ActivityType, Events } from 'discord.js';
 import { config } from '../config.js';
 import { getSettings } from '../lib/settings.js';
+import { sweepStreaks } from '../lib/activity.js';
 import { getGame, getUniverseId } from '../lib/roblox.js';
 
 export const name = Events.ClientReady;
@@ -8,6 +9,11 @@ export const once = true;
 
 export async function execute(client) {
   console.log(`Logged in as ${client.user.tag}`);
+
+  // End streaks of people who skipped a day (and remove their 🔥 badge) every 10 minutes.
+  const sweep = () => sweepStreaks(client).catch((err) => console.error('Streak sweep failed:', err.message));
+  sweep();
+  setInterval(sweep, 10 * 60_000);
   // Show the live player count in the bot's status, e.g. "Watching 1,234 playing My Game".
   const update = async () => {
     try {
