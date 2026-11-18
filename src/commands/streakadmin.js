@@ -8,7 +8,7 @@ import { notice } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('streak-admin')
-  .setDescription('Change someone\'s chat streak (admin). XP and levels have their own command: /xp')
+  .setDescription('Change someone\'s chat streak (admin)')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addSubcommand((s) => s.setName('set').setDescription('Set a member\'s streak to a number of days')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))

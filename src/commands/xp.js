@@ -7,7 +7,7 @@ import { notice } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('xp')
-  .setDescription('Change someone\'s level or XP (admin). Streaks have their own command: /streak-admin')
+  .setDescription('Change someone\'s level or XP (admin)')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addSubcommand((s) => s.setName('set-level').setDescription('Set a member\'s level')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
