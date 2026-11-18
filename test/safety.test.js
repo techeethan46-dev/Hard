@@ -219,37 +219,140 @@ test('message delete / edit / bulk logs', async () => {
   json(bulk);
 });
 
-test('member logs: join, leave, nickname (ignoring 🔥 badge), roles, timeout, ban', async () => {
-  const mk = (nick, roleIds, until = null) => ({
-    partial: false, guild, user: user('amy'), nickname: nick, toString: () => '<@amy>',
-    roles: { cache: new Collection(roleIds.map((r) => [r, { id: r, toString: () => `<@&${r}>` }])) },
-    communicationDisabledUntilTimestamp: until,
+const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
+guild.roles = { cache: new Collection([['r2', { id: 'r2', name: 'Members' }], ['r3', { id: 'r3', name: 'VIP' }]]) };
+guild.audit = [];
+guild.fetchAuditLogs = async ({ type }) => ({ entries: new Collection(guild.audit.filter((e) => e.type === type).map((e, i) => [i, e])) });
+guild.bans = { fetch: async () => { throw new Error('Unknown Ban'); } };
+const { AuditLogEvent } = await import('discord.js');
+const person = (id, extra = {}) => ({ ...user(id), globalName: id[0].toUpperCase() + id.slice(1), ...extra });
+const wait = async (ms) => { mock.timers.tick(ms); await flush(); };
+const last = () => textOf(logs.serverlog.at(-1));
+
+test('leaving, being kicked and being banned are told apart', async () => {
+  const gone = (u) => ({ guild, user: u, joinedTimestamp: Date.now() - 4 * 86_400_000, roles: { cache: new Collection([['r2', guild.roles.cache.get('r2')]]) } });
+
+  // just left: no audit entry
+  let n = logs.serverlog.length;
+  let p = slog.memberLeft(gone(person('amy')));
+  await wait(slog.AUDIT_DELAY_MS);
+  await p;
+  assert.equal(logs.serverlog.length, n + 1);
+  assert.match(last(), /📤 Member left\n\*\*Amy\*\* · `amy#0`/);
+  assert.match(last(), /\*\*Joined\*\* .*\n\*\*Roles\*\* <@&r2>/);
+  json(logs.serverlog.at(-1));
+
+  // a bot with no audit entry
+  p = slog.memberLeft(gone(person('arcane', { bot: true })));
+  await wait(slog.AUDIT_DELAY_MS);
+  await p;
+  assert.match(last(), /🤖 Bot removed/);
+
+  // kicked: the audit log says who and why
+  guild.audit.push({ type: AuditLogEvent.MemberKick, target: { id: 'bloxlink' }, executor: person('mod'), reason: 'No longer needed', createdTimestamp: Date.now() });
+  p = slog.memberLeft(gone(person('bloxlink', { bot: true })));
+  await wait(slog.AUDIT_DELAY_MS);
+  await p;
+  assert.match(last(), /👢 Bot kicked/);
+  assert.match(last(), /\*\*Kicked by\*\* \*\*Mod\*\*\n\*\*Reason\*\* No longer needed/);
+
+  // banned: ban event first, then the leave event: ONE message
+  guild.audit.push({ type: AuditLogEvent.MemberBanAdd, target: { id: 'raider' }, executor: person('mod'), reason: null, createdTimestamp: Date.now() });
+  n = logs.serverlog.length;
+  const b = slog.memberBanned({ guild, user: person('raider'), reason: 'Raiding', partial: false });
+  const l = slog.memberLeft(gone(person('raider')));
+  await wait(slog.AUDIT_DELAY_MS);
+  await Promise.all([b, l]);
+  assert.equal(logs.serverlog.length, n + 1);
+  assert.match(last(), /🔨 Member banned/);
+  assert.match(last(), /\*\*Banned by\*\* \*\*Mod\*\*\n\*\*Reason\*\* Raiding/);
+  json(logs.serverlog.at(-1));
+
+  // banned: the leave event is noticed first and finds the ban itself, then the ban event stays quiet
+  guild.bans.fetch = async () => ({ reason: 'Scamming' });
+  n = logs.serverlog.length;
+  const l2 = slog.memberLeft(gone(person('scammer')));
+  await wait(slog.AUDIT_DELAY_MS);
+  await l2;
+  const b2 = slog.memberBanned({ guild, user: person('scammer'), reason: 'Scamming', partial: false });
+  await wait(slog.AUDIT_DELAY_MS);
+  await b2;
+  assert.equal(logs.serverlog.length, n + 1);
+  assert.match(last(), /🔨 Member banned[\s\S]*Scamming/);
+  guild.bans.fetch = async () => { throw new Error('Unknown Ban'); };
+});
+
+test('role changes for one person become ONE message, written in words', async () => {
+  const roleObj = (id, name) => ({ id, name });
+  const mk = (id, roleList, nick = null) => ({
+    partial: false, guild, id, user: person(id), nickname: nick,
+    roles: { cache: new Collection(roleList.map((r) => [r.id, r])) }, communicationDisabledUntilTimestamp: null,
+  });
+  const gone = roleObj('r1', 'Old Role'); // not in the server anymore
+  const members = guild.roles.cache.get('r2');
+  const vip = guild.roles.cache.get('r3');
+  const n = logs.serverlog.length;
+
+  // three quick changes for Amy, one for Bob
+  guild.audit.push({ type: AuditLogEvent.MemberRoleUpdate, target: { id: 'amy' }, executor: person('mod'), createdTimestamp: Date.now() });
+  await slog.memberUpdated(mk('amy', [gone]), mk('amy', [members]));
+  await slog.memberUpdated(mk('amy', [members]), mk('amy', [members, vip]));
+  await slog.memberUpdated(mk('bob', []), mk('bob', [vip]));
+  await flush();
+  assert.equal(logs.serverlog.length, n, 'nothing posted until the burst is over');
+
+  await wait(slog.ROLE_BATCH_MS);
+  assert.equal(logs.serverlog.length, n + 2);
+  const [amy, bob] = logs.serverlog.slice(-2).map(textOf);
+  assert.match(amy, /🎭 Roles changed\n\*\*Amy\*\* · `amy#0`\n\*\*Roles added\*\* <@&r2> <@&r3>\n\*\*Roles removed\*\* \*\*Old Role\*\*\n\*\*Changed by\*\* \*\*Mod\*\*/);
+  assert.doesNotMatch(amy, /➕|➖/);
+  assert.match(bob, /\*\*Bob\*\* · `bob#0`\n\*\*Roles added\*\* <@&r3>/);
+  logs.serverlog.slice(-2).forEach((m) => json(m));
+
+  // a role added and taken away again inside the burst cancels out: no message
+  const m0 = logs.serverlog.length;
+  await slog.memberUpdated(mk('cat', []), mk('cat', [vip]));
+  await slog.memberUpdated(mk('cat', [vip]), mk('cat', []));
+  await wait(slog.ROLE_BATCH_MS);
+  assert.equal(logs.serverlog.length, m0);
+
+  // later changes are a new message
+  await slog.memberUpdated(mk('amy', [members]), mk('amy', []));
+  await wait(slog.ROLE_BATCH_MS);
+  assert.match(last(), /\*\*Roles removed\*\* <@&r2>/);
+});
+
+test('member logs: join, nickname (ignoring 🔥 badge and AFK tag), timeout, unban', async () => {
+  const mk = (nick, until = null) => ({
+    partial: false, guild, user: person('amy'), nickname: nick, toString: () => '<@amy>',
+    roles: { cache: new Collection() }, communicationDisabledUntilTimestamp: until,
   });
   const count = () => logs.serverlog.length;
 
   let c = count();
-  await slog.memberUpdated(mk('Amy [3🔥]', []), mk('Amy [4🔥]', []));
-  assert.equal(count(), c, 'streak badge change is not logged');
+  await slog.memberUpdated(mk('Amy [3🔥]'), mk('Amy [4🔥]'));
+  await slog.memberUpdated(mk('Amy'), mk('[AFK] Amy'));
+  await slog.memberUpdated(mk('[AFK] Amy [4🔥]'), mk('Amy [4🔥]'));
+  assert.equal(count(), c, 'streak badge and AFK tag changes are not logged');
 
-  await slog.memberUpdated(mk('Amy', []), mk('Queen Amy', []));
-  assert.match(textOf(logs.serverlog.at(-1)), /Nickname changed[\s\S]*Before\*\* Amy[\s\S]*After\*\* Queen Amy/);
+  await slog.memberUpdated(mk('Amy'), mk('Queen Amy'));
+  assert.match(last(), /Nickname changed[\s\S]*Before\*\* Amy[\s\S]*After\*\* Queen Amy/);
 
-  await slog.memberUpdated(mk(null, ['r1']), mk(null, ['r2']));
-  assert.match(textOf(logs.serverlog.at(-1)), /➕ <@&r2>\n➖ <@&r1>/);
-
-  await slog.memberUpdated(mk(null, []), mk(null, [], Date.now() + 60_000));
-  assert.match(textOf(logs.serverlog.at(-1)), /Timed out/);
+  await slog.memberUpdated(mk(null), mk(null, Date.now() + 60_000));
+  assert.match(last(), /Timed out/);
 
   const newbie = joiner('newbie', 2);
-  newbie.toString = () => '<@newbie>';
+  newbie.user.globalName = 'Newbie';
   await slog.memberJoined(newbie);
-  assert.match(textOf(logs.serverlog.at(-1)), /new account/);
+  assert.match(last(), /📥 Member joined\n\*\*Newbie\*\*[\s\S]*new account/);
+  const botJoin = joiner('helper', 900);
+  botJoin.user.bot = true;
+  await slog.memberJoined(botJoin);
+  assert.match(last(), /🤖 Bot added/);
+  assert.doesNotMatch(last(), /new account/);
 
-  await slog.memberLeft({ ...mk(null, ['r1']), joinedTimestamp: Date.now() - 86_400_000 });
-  assert.match(textOf(logs.serverlog.at(-1)), /Member left[\s\S]*<@&r1>/);
-
-  await slog.memberBanned({ guild, user: user('bad'), reason: 'Exploiting' });
-  assert.match(textOf(logs.serverlog.at(-1)), /banned[\s\S]*Exploiting/);
+  await slog.memberUnbanned({ guild, user: person('raider') });
+  assert.match(last(), /🕊️ Member unbanned/);
   logs.serverlog.slice(c).forEach((m) => json(m));
 });
 

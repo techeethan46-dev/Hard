@@ -5,7 +5,7 @@ import { setStreakBadge } from './nickname.js';
 import { getSettings } from './settings.js';
 import { store } from './store.js';
 import { RESTORES_PER_MONTH, addDays, breakIfStale, dayKey, recordChat, restoreQuote } from './streaks.js';
-import { card, colors, divider, footnote, progress, section, text, thumb, v2 } from './ui.js';
+import { card, colors, divider, footnote, section, text, thumb, v2 } from './ui.js';
 
 const lastXp = new Map(); // "guild:user" -> time of last XP
 const chattedOn = new Map(); // "guild:user" -> day already counted for the streak
@@ -44,14 +44,20 @@ async function giveXp(message, settings) {
   const gained = rewards.filter((r) => r.level > before);
 
   const channel = (settings.levelUpChannel && (await message.guild.channels.fetch(settings.levelUpChannel).catch(() => null))) || message.channel;
-  await channel.send(v2(card(colors.ok,
+  await channel.send(levelUpCard(message.author, after, gained))
+    .catch((err) => console.error('Level-up message failed:', err.message));
+}
+
+/** The "Level up!" message: who, which level, how much to the next one, and any role they unlocked. No progress bar. */
+export function levelUpCard(author, after, gained = []) {
+  return v2(card(colors.ok,
     section([
       `### 🎉 Level up!`,
-      `${message.author} reached **level ${after.level}**`,
-      `${progress(Math.round((after.into / after.needed) * 12), 12)} -# ${after.needed - after.into} XP to level ${after.level + 1}`,
-    ], thumb(message.author.displayAvatarURL({ size: 128 }))),
+      `${author} reached **level ${after.level}**`,
+      `-# ${(after.needed - after.into).toLocaleString('en-US')} XP to level ${after.level + 1}`,
+    ], thumb(author.displayAvatarURL({ size: 128 }))),
     gained.length ? [divider(), text(gained.map((r) => `🎁 Unlocked <@&${r.roleId}>`))] : null,
-  ), { mentions: { users: [message.author.id] } })).catch((err) => console.error('Level-up message failed:', err.message));
+  ), { mentions: { users: [author.id] } });
 }
 
 /** Gives every reward role at or below this level. Returns the rewards they now qualify for. */

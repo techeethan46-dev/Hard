@@ -1,8 +1,8 @@
 // Server logs: message deletes/edits, joins/leaves, nickname/role/timeout changes, bans.
 // Everything goes to the "Server log channel" chosen in /setup.
-import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, FileBuilder } from 'discord.js';
+import { ActionRowBuilder, AttachmentBuilder, AuditLogEvent, ButtonBuilder, ButtonStyle, FileBuilder } from 'discord.js';
 import { deletedByAutomod } from './automod.js';
-import { stripBadge } from './nickname.js';
+import { stripAfk, stripBadge } from './nickname.js';
 import { getSettings } from './settings.js';
 import { card, colors, divider, footnote, section, text, thumb, v2 } from './ui.js';
 
@@ -19,8 +19,14 @@ async function send(guild, payload) {
   const { serverLogChannel } = await getSettings(guild.id);
   if (!serverLogChannel) return;
   const ch = await guild.channels.fetch(serverLogChannel).catch(() => null);
-  if (ch?.isTextBased()) await ch.send(payload).catch((err) => console.error('Server log failed:', err.message));
+  return ch?.isTextBased() ? ch.send(payload).catch((err) => console.error('Server log failed:', err.message)) : null;
 }
+
+/** "**Display name** · `username`". Plain text on purpose: mentions show as @unknown-user for people the viewer's app doesn't know. */
+const who = (user) => `**${user.globalName ?? user.username ?? 'unknown'}** · \`${user.tag ?? user.username ?? user.id}\``;
+const nameOf = (user) => `**${user?.globalName ?? user?.username ?? user?.id ?? 'someone'}**`;
+/** A role as a colored mention, or its name if the role no longer exists. */
+const roleText = (guild, role) => (guild.roles.cache.has(role.id) ? `<@&${role.id}>` : `**${role.name}**`);
 
 /** Small log card: colored edge, title + lines with the person's avatar, footnote with IDs and time. */
 const entry = (accent, { title, lines, user, extra = [], foot }) => v2(card(accent,
@@ -41,7 +47,7 @@ export async function messageDeleted(message) {
     title: '🗑️ Message deleted',
     user: message.author,
     lines: [
-      message.author ? `**By** ${message.author} \`${message.author.tag}\`` : '**By** unknown (sent before the bot started)',
+      message.author ? `**By** ${who(message.author)}` : '**By** unknown (sent before the bot started)',
       `**In** ${message.channel}${message.createdTimestamp ? ` · sent ${ts(message.createdTimestamp)}` : ''}`,
     ],
     extra: [divider(), text(message.partial && !message.content ? '-# The text isn\'t known (the message was sent before the bot started).' : quote(message.content), files)],
@@ -56,7 +62,7 @@ export async function messageEdited(before, after) {
   await send(after.guild, entry(colors.info, {
     title: '✏️ Message edited',
     user: after.author,
-    lines: [`**By** ${after.author} \`${after.author.tag}\``, `**In** ${after.channel}`],
+    lines: [`**By** ${who(after.author)}`, `**In** ${after.channel}`],
     extra: [
       divider(),
       text('**Before**', before.partial && !before.content ? '-# *not known (sent before the bot started)*' : quote(before.content, 700)),
@@ -91,68 +97,156 @@ export async function messagesBulkDeleted(messages, channel) {
 
 // ---------------------------------------------------------------- members
 
+/** Discord needs a moment before the audit log shows a kick or ban. */
+export const AUDIT_DELAY_MS = 1500;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Newest audit log entry of this kind about this user from the last 20 seconds, or null (also when the bot can't view the audit log). */
+async function auditEntry(guild, type, userId, since = Date.now() - 20_000) {
+  try {
+    const logs = await guild.fetchAuditLogs({ type, limit: 10 });
+    return logs.entries.find((e) => e.target?.id === userId && e.createdTimestamp >= since) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function memberJoined(member) {
   const age = Date.now() - member.user.createdTimestamp;
   await send(member.guild, entry(colors.ok, {
-    title: '📥 Member joined',
+    title: member.user.bot ? '🤖 Bot added' : '📥 Member joined',
     user: member.user,
     lines: [
-      `${member} \`${member.user.tag}\``,
-      `**Account made** ${ts(member.user.createdTimestamp)}${age < 7 * DAY ? ' · ⚠️ **new account**' : ''}`,
+      who(member.user),
+      `**Account made** ${ts(member.user.createdTimestamp)}${age < 7 * DAY && !member.user.bot ? ' · ⚠️ **new account**' : ''}`,
       `-# Member #${member.guild.memberCount.toLocaleString('en-US')}`,
     ],
   }));
 }
 
-export async function memberLeft(member) {
-  const roles = member.roles?.cache?.filter((r) => r.id !== member.guild.id).map((r) => `${r}`) ?? [];
-  await send(member.guild, entry(colors.warn, {
-    title: '📤 Member left',
-    user: member.user,
+// A ban makes the member leave AND fires a ban event. Whichever notices first logs it; the other stays quiet.
+const bansLogged = new Map();
+function claimBan(guildId, userId) {
+  const key = `${guildId}:${userId}`;
+  if (Date.now() - (bansLogged.get(key) ?? 0) < 60_000) return false;
+  bansLogged.set(key, Date.now());
+  if (bansLogged.size > 1000) bansLogged.clear();
+  return true;
+}
+
+async function reportBan(guild, user, reason) {
+  if (!claimBan(guild.id, user.id)) return;
+  const audit = await auditEntry(guild, AuditLogEvent.MemberBanAdd, user.id);
+  await send(guild, entry(colors.bad, {
+    title: user.bot ? '🔨 Bot banned' : '🔨 Member banned', user,
     lines: [
-      `${member.user} \`${member.user.tag}\``,
-      member.joinedTimestamp ? `**Joined** ${ts(member.joinedTimestamp)}` : '**Joined** unknown',
+      who(user),
+      audit?.executor ? `**Banned by** ${nameOf(audit.executor)}` : null,
+      `**Reason** ${reason ?? audit?.reason ?? '*none given*'}`,
+    ].filter(Boolean),
+  }));
+}
+
+export async function memberBanned(ban) {
+  await sleep(AUDIT_DELAY_MS);
+  const full = ban.partial ? await ban.fetch().catch(() => ban) : ban;
+  await reportBan(ban.guild, ban.user, full.reason);
+}
+
+export async function memberUnbanned(ban) {
+  await send(ban.guild, entry(colors.ok, { title: '🕊️ Member unbanned', user: ban.user, lines: [who(ban.user)] }));
+}
+
+/** Someone is gone: tell apart banned, kicked, and left (or a bot being removed). */
+export async function memberLeft(member) {
+  const { guild, user } = member;
+  await sleep(AUDIT_DELAY_MS);
+
+  const key = `${guild.id}:${user.id}`;
+  if (Date.now() - (bansLogged.get(key) ?? 0) < 60_000) return; // the ban log covers it
+  const ban = await guild.bans?.fetch?.(user.id).catch(() => null);
+  if (ban) return reportBan(guild, user, ban.reason);
+
+  const kick = await auditEntry(guild, AuditLogEvent.MemberKick, user.id);
+  const roles = member.roles?.cache?.filter((r) => r.id !== guild.id).map((r) => roleText(guild, r)) ?? [];
+  const title = kick ? (user.bot ? '👢 Bot kicked' : '👢 Member kicked') : (user.bot ? '🤖 Bot removed' : '📤 Member left');
+  await send(guild, entry(kick ? colors.bad : colors.warn, {
+    title, user,
+    lines: [
+      who(user),
+      kick?.executor ? `**Kicked by** ${nameOf(kick.executor)}` : null,
+      kick ? `**Reason** ${kick.reason ?? '*none given*'}` : null,
+      member.joinedTimestamp ? `**Joined** ${ts(member.joinedTimestamp)}` : null,
       roles.length ? `**Roles** ${roles.slice(0, 15).join(' ')}${roles.length > 15 ? ` +${roles.length - 15}` : ''}` : null,
+    ].filter(Boolean),
+  }));
+}
+
+// ---------------------------------------------------------------- role changes (merged per person)
+
+// Role changes for one person arrive one at a time. They're collected for a few seconds and posted as ONE message.
+export const ROLE_BATCH_MS = 4000;
+const ROLE_BATCH_MAX_MS = 15_000;
+const roleBatches = new Map(); // "guild:user" -> { added: Map, removed: Map, firstAt, timer, guild, user }
+
+function noteRoleChanges(member, added, removed) {
+  const key = `${member.guild.id}:${member.id}`;
+  const now = Date.now();
+  let b = roleBatches.get(key);
+  if (!b) {
+    b = { added: new Map(), removed: new Map(), firstAt: now, timer: null, guild: member.guild, user: member.user };
+    roleBatches.set(key, b);
+  }
+  // A role that was added and then removed again within the batch cancels out.
+  for (const r of added) (b.removed.has(r.id) ? b.removed.delete(r.id) : b.added.set(r.id, r));
+  for (const r of removed) (b.added.has(r.id) ? b.added.delete(r.id) : b.removed.set(r.id, r));
+  clearTimeout(b.timer);
+  b.timer = setTimeout(() => flushRoleChanges(key).catch((err) => console.error('Role log failed:', err.message)),
+    Math.max(0, Math.min(ROLE_BATCH_MS, b.firstAt + ROLE_BATCH_MAX_MS - now)));
+  b.timer.unref?.();
+}
+
+async function flushRoleChanges(key) {
+  const b = roleBatches.get(key);
+  roleBatches.delete(key);
+  if (!b || (!b.added.size && !b.removed.size)) return;
+
+  // Who made the change (best effort: needs the "View Audit Log" permission).
+  let by = [];
+  try {
+    const logs = await b.guild.fetchAuditLogs({ type: AuditLogEvent.MemberRoleUpdate, limit: 10 });
+    by = [...new Set(logs.entries.filter((e) => e.target?.id === b.user.id && e.createdTimestamp >= b.firstAt - 5000)
+      .map((e) => nameOf(e.executor)))];
+  } catch { /* no audit log access */ }
+
+  const list = (map) => [...map.values()].map((r) => roleText(b.guild, r)).join(' ');
+  await send(b.guild, entry(colors.info, {
+    title: '🎭 Roles changed', user: b.user,
+    lines: [
+      who(b.user),
+      b.added.size ? `**Roles added** ${list(b.added)}` : null,
+      b.removed.size ? `**Roles removed** ${list(b.removed)}` : null,
+      by.length ? `**Changed by** ${by.join(', ')}` : null,
     ].filter(Boolean),
   }));
 }
 
 export async function memberUpdated(before, after) {
   if (before.partial) return; // we don't know what changed
-  const changes = [];
+  const log = (title, lines) => send(after.guild, entry(colors.info, { title, user: after.user, lines: [who(after.user), ...lines] }));
 
-  // Nicknames (ignore the bot's own 🔥 streak badge updates)
-  if (before.nickname !== after.nickname && stripBadge(before.nickname ?? '') !== stripBadge(after.nickname ?? '')) {
-    changes.push(['🏷️ Nickname changed', [`**Before** ${before.nickname ?? '*none*'}`, `**After** ${after.nickname ?? '*none*'}`]]);
+  // Nicknames (ignore the bot's own 🔥 streak badge and [AFK] tag)
+  const plain = (n) => stripAfk(stripBadge(n ?? ''));
+  if (before.nickname !== after.nickname && plain(before.nickname) !== plain(after.nickname)) {
+    await log('🏷️ Nickname changed', [`**Before** ${before.nickname ?? '*none*'}`, `**After** ${after.nickname ?? '*none*'}`]);
   }
 
-  const added = after.roles.cache.filter((r) => !before.roles.cache.has(r.id));
-  const removed = before.roles.cache.filter((r) => !after.roles.cache.has(r.id));
-  if (added.size || removed.size) {
-    changes.push(['🎭 Roles changed', [
-      ...added.map((r) => `➕ ${r}`),
-      ...removed.map((r) => `➖ ${r}`),
-    ]]);
-  }
+  const added = [...after.roles.cache.filter((r) => !before.roles.cache.has(r.id)).values()];
+  const removed = [...before.roles.cache.filter((r) => !after.roles.cache.has(r.id)).values()];
+  if (added.length || removed.length) noteRoleChanges(after, added, removed);
 
   const wasOut = before.communicationDisabledUntilTimestamp > Date.now();
   const isOut = after.communicationDisabledUntilTimestamp > Date.now();
-  if (!wasOut && isOut) changes.push(['🔇 Timed out', [`**Until** ${ts(after.communicationDisabledUntilTimestamp, 'f')}`]]);
-  if (wasOut && !isOut) changes.push(['🔊 Timeout removed', []]);
-
-  for (const [title, lines] of changes) {
-    await send(after.guild, entry(colors.info, { title, user: after.user, lines: [`${after} \`${after.user.tag}\``, ...lines] }));
-  }
-}
-
-export async function memberBanned(ban) {
-  const full = ban.partial ? await ban.fetch().catch(() => ban) : ban;
-  await send(ban.guild, entry(colors.bad, {
-    title: '🔨 Member banned', user: ban.user,
-    lines: [`${ban.user} \`${ban.user.tag}\``, `**Reason** ${full.reason ?? '*none given*'}`],
-  }));
-}
-
-export async function memberUnbanned(ban) {
-  await send(ban.guild, entry(colors.ok, { title: '🕊️ Member unbanned', user: ban.user, lines: [`${ban.user} \`${ban.user.tag}\``] }));
+  if (!wasOut && isOut) await log('🔇 Timed out', [`**Until** ${ts(after.communicationDisabledUntilTimestamp, 'f')}`]);
+  if (wasOut && !isOut) await log('🔊 Timeout removed', []);
 }

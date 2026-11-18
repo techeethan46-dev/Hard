@@ -13,10 +13,11 @@ const client = new Client({
   // MessageContent is needed for AutoMod and message logs; GuildModeration for ban logs.
   intents: [
     GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.MessageContent, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildMessageReactions,
   ],
   // Lets delete/edit logs fire for messages sent before the bot started.
-  partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.User],
+  // Reaction is needed so reaction roles work on panels posted before the bot last restarted.
+  partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.User, Partials.Reaction],
 });
 
 await initStore();

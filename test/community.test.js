@@ -73,7 +73,7 @@ const member = {
 const ix = (extra = {}) => {
   const calls = [];
   const rec = async (p) => { calls.push(p); };
-  return { calls, guild, member, user: { id: 'admin' }, memberPermissions: perms('ManageRoles'), reply: rec, update: rec, showModal: rec, ...extra };
+  return { calls, guild, member, user: { id: 'admin' }, memberPermissions: perms('ManageRoles'), reply: rec, update: rec, showModal: rec, editReply: rec, deferUpdate: async () => {}, ...extra };
 };
 
 test('dangerous, managed and too-high roles are blocked', () => {
@@ -83,11 +83,12 @@ test('dangerous, managed and too-high roles are blocked', () => {
   assert.match(roles.blockReason(guild, guild.roles.cache.get('bot')), /bot or integration/);
 });
 
-test('builder: pick roles, mode, style, text, then post', async () => {
+test('builder: pick roles, mode, style, text, then post (buttons)', async () => {
   const start = ix();
   await roles.execute(start);
   json(start.calls[0]);
   assert.ok(start.calls[0].flags & 64);
+  assert.match(textOf(start.calls[0]), /2 · Choose how it works/);
 
   const pick = ix({ customId: 'roles:b:roles', values: ['eu', 'na', 'mod'] });
   await roles.handleSelect(pick);
@@ -95,6 +96,9 @@ test('builder: pick roles, mode, style, text, then post', async () => {
   assert.ok(buttonLabels(pick.calls[0]).includes('Post here (2 roles)'));
 
   await roles.handleSelect(ix({ customId: 'roles:b:mode', values: ['o'] }));
+  const style = ix({ customId: 'roles:b:style', values: ['buttons'] });
+  await roles.handleSelect(style);
+  assert.match(textOf(style.calls[0]), /Click a button to get a role/); // the default text follows the style
   await roles.handleModal(ix({ customId: 'roles:b:textsave', fields: { getTextInputValue: (k) => (k === 'title' ? 'Your region' : 'Pick where you play from') } }));
 
   const posted = [];
@@ -104,6 +108,146 @@ test('builder: pick roles, mode, style, text, then post', async () => {
   assert.match(textOf(posted[0]), /## Your region\nPick where you play from/);
   assert.deepEqual(customIds(posted[0]), ['roles:t:o:eu', 'roles:t:o:na']);
   assert.match(textOf(post.calls[0]), /Posted!/);
+});
+
+// ---------------------------------------------------------------- reaction roles
+
+const RR = await import('../src/lib/reactionroles.js');
+
+test('emojis: parsing, and every role gets its own', () => {
+  assert.equal(RR.parseEmoji('🎮').key, '🎮');
+  assert.equal(RR.parseEmoji('❤️').key, '❤');
+  assert.equal(RR.parseEmoji('🇪🇺').key, '🇪🇺');
+  assert.equal(RR.parseEmoji('<:wobble:123456789012345678>').key, '123456789012345678');
+  assert.equal(RR.parseEmoji('1️⃣').key, '1⃣');
+  assert.ok(RR.parseEmoji('👨‍👩‍👧'), 'joined emoji count as one');
+  assert.ok(RR.parseEmoji('👍🏽'), 'skin tones too');
+  for (const bad of ['', 'abc', 'a🎮', '🎮🎮', '🎮 🎮', ':smile:', '🎮x']) assert.equal(RR.parseEmoji(bad), null, bad);
+  assert.equal(RR.reactionKey({ id: null, name: '❤️' }), '❤');
+  assert.equal(RR.reactionKey({ id: '99', name: 'wobble' }), '99');
+
+  const out = RR.assignEmojis(guild, ['eu', 'na', 'ping'], { ping: '🔔' });
+  assert.equal(out.eu, '🇪🇺'); // the role's own emoji
+  assert.equal(out.ping, '🔔'); // kept
+  assert.ok(out.na && out.na !== '🔔' && out.na !== '🇪🇺'); // from the palette, not a duplicate
+  assert.equal(new Set(Object.values(out)).size, 3);
+});
+
+function fakeSent() {
+  const sent = { id: 'panel1', reacted: [], edits: [], failOn: null };
+  sent.react = async (e) => { if (e === sent.failOn) throw new Error('Unknown Emoji'); sent.reacted.push(e); };
+  sent.edit = async (m) => { sent.edits.push(m); };
+  return sent;
+}
+
+test('reaction builder: emojis are listed, can be changed, and bad ones are refused', async () => {
+  await roles.execute(ix());
+  const pick = ix({ customId: 'roles:b:roles', values: ['eu', 'na'] });
+  await roles.handleSelect(pick);
+  json(pick.calls[0]);
+  const t = textOf(pick.calls[0]);
+  assert.match(t, /😀 Emojis\n🇪🇺 {2}· {2}<@&eu>\n\S+ {2}· {2}<@&na>/);
+  assert.match(t, /React to this message to get a role/);
+  assert.ok(customIds(pick.calls[0]).includes('roles:b:emojipick'));
+
+  const ask = ix({ customId: 'roles:b:emojipick', values: ['na'] });
+  await roles.handleSelect(ask);
+  assert.match(ask.calls[0].toJSON().custom_id, /^roles:b:emoji:na$/);
+
+  const set = (emoji) => ix({ customId: 'roles:b:emoji:na', fields: { getTextInputValue: () => emoji } });
+  const bad = set('hello');
+  await roles.handleModal(bad);
+  assert.match(textOf(bad.calls[0]), /That isn't an emoji/);
+  const dupe = set('🇪🇺');
+  await roles.handleModal(dupe);
+  assert.match(textOf(dupe.calls[0]), /already used for <@&eu>/);
+  const ok = set('🎮');
+  await roles.handleModal(ok);
+  assert.match(textOf(ok.calls[0]), /🎮 {2}· {2}<@&na>/);
+});
+
+test('posting a reaction panel adds the reactions and saves it', async () => {
+  const sent = fakeSent();
+  const posted = [];
+  const channel = { send: async (m) => { posted.push(m); return sent; }, toString: () => '#roles' };
+  await roles.handleSelect(ix({ customId: 'roles:b:mode', values: ['o'] }));
+  const post = ix({ customId: 'roles:b:post', channel });
+  await roles.handleButton(post);
+
+  json(posted[0]);
+  assert.match(textOf(posted[0]), /React to this message to get a role[\s\S]*🇪🇺 {2}· {2}<@&eu>\n🎮 {2}· {2}<@&na>[\s\S]*one of these at a time/);
+  assert.deepEqual(sent.reacted, ['🇪🇺', '🎮']);
+  assert.match(textOf(post.calls[0]), /Posted!/);
+  const saved = (await getSettings('g1')).reactionPanels.panel1;
+  assert.deepEqual(saved, { mode: 'o', roles: [{ roleId: 'eu', emoji: '🇪🇺' }, { roleId: 'na', emoji: '🎮' }] });
+});
+
+test('an emoji Discord refuses is left out and the panel is corrected', async () => {
+  await roles.execute(ix());
+  await roles.handleSelect(ix({ customId: 'roles:b:roles', values: ['eu', 'na'] }));
+  const sent = fakeSent();
+  sent.id = 'panel2';
+  sent.failOn = '🇪🇺';
+  const post = ix({ customId: 'roles:b:post', channel: { send: async () => sent, toString: () => '#roles' } });
+  await roles.handleButton(post);
+  assert.match(textOf(post.calls[0]), /couldn't use 🇪🇺/);
+  assert.equal(sent.edits.length, 1);
+  assert.doesNotMatch(textOf(sent.edits[0]), /🇪🇺/);
+  assert.deepEqual((await getSettings('g1')).reactionPanels.panel2.roles.map((r) => r.roleId), ['na']);
+});
+
+function reactionOn(emoji, { removed = [] } = {}) {
+  const cache = new Map([['x', { emoji: { id: null, name: '🇪🇺' }, users: { remove: async (id) => removed.push(['🇪🇺', id]) } }],
+    ['y', { emoji: { id: null, name: '🎮' }, users: { remove: async (id) => removed.push(['🎮', id]) } }]]);
+  return {
+    partial: false, emoji: { id: null, name: emoji }, users: { remove: async (id) => removed.push([emoji, id]) },
+    message: { id: 'panel1', guild: { ...guild, id: 'g1' }, reactions: { cache } },
+  };
+}
+
+test('reacting gives the role, un-reacting takes it, and "only one" swaps', async () => {
+  guild.members.fetch = async () => member;
+  held.clear();
+  const u = { id: 'u1', bot: false };
+
+  await RR.handleReaction(reactionOn('🇪🇺'), u, true);
+  assert.deepEqual([...held], ['eu']);
+
+  const removed = [];
+  await RR.handleReaction(reactionOn('🎮', { removed }), u, true); // panel1 is "only one at a time"
+  assert.deepEqual([...held], ['na']);
+  assert.deepEqual(removed, [['🇪🇺', 'u1']], 'their old reaction is taken off too');
+
+  await RR.handleReaction(reactionOn('🎮'), u, false);
+  assert.deepEqual([...held], []);
+});
+
+test('reaction roles ignore bots and other emojis, and refuse blocked roles', async () => {
+  held.clear();
+  await RR.handleReaction(reactionOn('🇪🇺'), { id: 'bot', bot: true }, true);
+  assert.deepEqual([...held], []);
+
+  const removed = [];
+  await RR.handleReaction(reactionOn('🍕', { removed }), { id: 'u1', bot: false }, true);
+  assert.deepEqual(removed, [['🍕', 'u1']], 'foreign emojis are cleaned off the panel');
+  assert.deepEqual([...held], []);
+
+  // a role that became dangerous after the panel was posted
+  await RR.savePanel('g1', 'panel9', { mode: 'm', roles: [{ roleId: 'mod', emoji: '🛡️' }] });
+  const r = reactionOn('🛡️', { removed });
+  r.message.id = 'panel9';
+  await RR.handleReaction(r, { id: 'u1', bot: false }, true);
+  assert.deepEqual([...held], []);
+  assert.deepEqual(removed.at(-1), ['🛡️', 'u1']);
+
+  // a message that isn't a role panel does nothing
+  const other = reactionOn('🇪🇺');
+  other.message.id = 'random';
+  await RR.handleReaction(other, { id: 'u1', bot: false }, true);
+  assert.deepEqual([...held], []);
+
+  await RR.forgetPanel('g1', 'panel9');
+  assert.equal((await getSettings('g1')).reactionPanels.panel9, undefined);
 });
 
 test('buttons: click to add, click again to remove; "only one" swaps', async () => {

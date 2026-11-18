@@ -322,6 +322,7 @@ export function checks(guild, s) {
     ManageRoles: 'give roles', ManageNicknames: 'set nicknames', KickMembers: 'kick', BanMembers: 'ban',
     ModerateMembers: 'time out', ManageMessages: 'purge messages',
     ...(s.ticketCategory && { ManageChannels: 'create ticket channels' }),
+    ...(s.serverLogChannel && { ViewAuditLog: 'show who kicked, banned or changed roles in the logs' }),
   };
   const missing = Object.entries(needed).filter(([p]) => !me.permissions.has(PermissionFlagsBits[p])).map(([, what]) => what);
   if (missing.length) out.push(`⚠️ The bot's role is missing permissions to **${missing.join(', ')}**.`);
