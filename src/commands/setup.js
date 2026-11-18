@@ -24,7 +24,7 @@ export const STEPS = [
   { key: 'placeId', kind: 'game', section: 'Roblox', emoji: '🎮', title: 'Roblox game',
     desc: 'Powers `/game` and the live player count in the bot\'s status. Paste the game\'s link.' },
   { key: 'welcomeChannel', kind: 'channel', section: 'Channels', emoji: '👋', title: 'Welcome channel',
-    desc: 'New members are greeted here and told to verify.' },
+    desc: 'New members are greeted here and told to verify. Write your own greeting with `/message welcome`. (Skip this if another bot already welcomes people, or they\'ll be welcomed twice.)' },
   { key: 'modLogChannel', kind: 'channel', section: 'Channels', emoji: '🛡️', title: 'Mod log channel',
     desc: 'Every warn, kick, ban and unban is logged here, even ones done from Discord itself, plus AutoMod and raid alerts. Make it staff-only.' },
   { key: 'suggestionsChannel', kind: 'channel', section: 'Channels', emoji: '💡', title: 'Suggestions channel',

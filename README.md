@@ -78,6 +78,7 @@ Skip any step you don't need; that feature just stays off.
 | `/xp set-level/give/reset` | Admins | Adjust someone's level or XP (`reset` only resets XP) |
 | `/streak-admin set/reset/restores` | Admins | Set or remove someone's streak, or refill their restores |
 | `/raidmode on/off/status` | Admins | Turn raid mode on or off by hand |
+| `/message create/edit/welcome` | Admins | Write rules and announcements from cards and banners, edit them later, and write your own welcome message |
 | `/giveaway start/end/reroll/cancel/list` | Admins | Giveaways with requirements and bonus entries |
 | `/roles create` | Admins | Build a self-role panel (buttons or dropdown, many or only-one) and post it |
 | `/sticky set/remove/list` | Moderators | Keep a message at the bottom of a channel |
@@ -109,6 +110,30 @@ automatically.
   and given back if it's restored. Choose **Let them keep the roles** in `/setup` to keep them once earned.
 - `/xp reset` only resets XP; use `/streak-admin` for streaks.
 - The bot can't rename the server owner or anyone whose role is above the bot's, so they won't get a badge.
+
+## Rules, announcements and the welcome message
+
+`/message create` opens a private builder. A message is made of **blocks**, each shown as a card:
+- **🖼️ Banner:** a picture (like the "COMMUNITY RULES" banner), with a colored edge.
+- **📄 Card:** your text (supports `## Headings`, `**bold**`, `• bullets`, `-# small text` and server emojis), plus an
+  optional color, a small picture on the right, a big picture at the bottom, and up to 5 link buttons
+  (`Play now | https://www.roblox.com/games/123`).
+
+Use **Edit, Up, Down, Delete** on any block, **Preview** to see the real thing (only you see it), then **Post message**.
+`/message edit` lists the messages you made this way (by channel and title) so you can change them any time; the live
+message is updated in place. Messages that were deleted are forgotten.
+
+Good to know:
+- One message holds **3,800 characters** (Discord's limit is 4,000 per message). For long rules, make several messages one
+  after another, like a banner message followed by one message per section.
+- Picture links must start with `https://` and point straight to the picture (Imgur, a GitHub raw link, etc.). Pasted
+  Discord attachment links can stop working after a while, so use a permanent host for banners.
+- Nobody is pinged by a posted message, so you can't accidentally `@everyone`.
+
+**Welcome message:** new members get a welcome card in the **Welcome channel** (set in `/setup`). `/message welcome` lets
+you write your own with placeholders `{user}` `{username}` `{server}` `{count}` `{game}`, and `{avatar}` / `{servericon}` for
+pictures. **Back to the default** returns to the standard card. If another bot (like Carl-bot) already welcomes people, turn
+one of them off or members get two welcomes.
 
 ## Giveaways
 

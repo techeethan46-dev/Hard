@@ -100,6 +100,15 @@ test('welcome, suggestion, mod log, DM notice', async () => {
   check(sent.wel, /Welcome, newbie!/, /home of \*\*Cool Game\*\*/, /member #1,500/);
   assert.deepEqual(sent.wel.allowedMentions, { users: ['newbie'] });
 
+  // a welcome written with /message welcome replaces the standard card
+  await updateSettings('g1', { welcomeMessage: [{ type: 'card', color: 0x3fcf8e, thumb: '{avatar}', image: null, buttons: [],
+    text: 'Hi {username}! {user} welcome to **{server}** for the game **{game}**. Member #{count}' }] });
+  await (await import('../src/events/guildMemberAdd.js')).execute(member('seven'));
+  check(sent.wel, /Hi seven! <@seven> welcome to \*\*Cool Server\*\* for the game \*\*Cool Game\*\*\. Member #1,500/);
+  assert.doesNotMatch(textOf(sent.wel), /Get started/);
+  assert.deepEqual(sent.wel.allowedMentions, { users: ['seven'] });
+  await updateSettings('g1', { welcomeMessage: null });
+
   const i = interaction({ idea: 'Add pets\nand hats' });
   await (await import('../src/commands/suggest.js')).execute(i);
   check(sent.sug, /New suggestion/, /> Add pets\n> and hats/);

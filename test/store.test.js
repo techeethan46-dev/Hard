@@ -62,6 +62,19 @@ for (const [name, init] of backends) {
       assert.equal((await store.warnings.list('g2', 'd2')).length, 1);
     });
 
+    test('composed messages: create, update, list newest first, delete', async () => {
+      await store.composed.create({ messageId: 'c1', guildId: 'g1', channelId: 'ch', blocks: [{ type: 'card', text: 'one' }], createdAt: 1 });
+      await store.composed.create({ messageId: 'c2', guildId: 'g1', channelId: 'ch', blocks: [{ type: 'card', text: 'two' }], createdAt: 2 });
+      await store.composed.create({ messageId: 'c3', guildId: 'g2', channelId: 'ch', blocks: [], createdAt: 3 });
+      assert.equal((await store.composed.get('c1')).blocks[0].text, 'one');
+      assert.equal((await store.composed.get('c1')).messageId, 'c1');
+      assert.deepEqual((await store.composed.list('g1')).map((m) => m.messageId), ['c2', 'c1']);
+      await store.composed.update('c1', { blocks: [{ type: 'card', text: 'changed' }] });
+      assert.equal((await store.composed.get('c1')).blocks[0].text, 'changed');
+      await store.composed.delete('c1');
+      assert.equal(await store.composed.get('c1'), null);
+    });
+
     test('tickets: numbering, claim once, close once', async () => {
       const n1 = await store.tickets.nextNumber('g1');
       const n2 = await store.tickets.nextNumber('g1');
