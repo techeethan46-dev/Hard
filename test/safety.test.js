@@ -9,7 +9,7 @@ mock.timers.enable({ apis: ['setTimeout'] }); // warning cleanups etc. shouldn't
 const { initStore } = await import('../src/lib/store.js');
 await initStore({ jsonPath: null });
 const { updateSettings, getSettings } = await import('../src/lib/settings.js');
-await updateSettings('g1', { modLogChannel: 'modlog', serverLogChannel: 'serverlog', bannedWords: ['badword'], automodExemptRoles: ['trusted'] });
+await updateSettings('g1', { modLogChannel: 'modlog', serverLogChannel: 'serverlog', joinLogChannel: 'joinlog', leaveLogChannel: 'leavelog', bannedWords: ['badword'], automodExemptRoles: ['trusted'] });
 const automod = await import('../src/lib/automod.js');
 const { detect, SpamTracker, isScamDomain } = automod;
 
@@ -63,7 +63,7 @@ test('spam: too fast, or the same message 3 times', () => {
 // ---------------------------------------------------------------- acting on messages
 
 const ALL = new PermissionsBitField(PermissionsBitField.All);
-const logs = { modlog: [], serverlog: [] };
+const logs = { modlog: [], serverlog: [], joinlog: [], leavelog: [] };
 const chan = (id) => ({ id, name: id, isTextBased: () => true, toString: () => `<#${id}>`, send: async (m) => { logs[id]?.push(m); return { delete: async () => {}, edit: async (e) => { logs[id]?.push(e); } }; } });
 const guild = {
   id: 'g1', name: 'Cool Server', memberCount: 100, iconURL: () => null,
@@ -227,59 +227,110 @@ guild.bans = { fetch: async () => { throw new Error('Unknown Ban'); } };
 const { AuditLogEvent } = await import('discord.js');
 const person = (id, extra = {}) => ({ ...user(id), globalName: id[0].toUpperCase() + id.slice(1), ...extra });
 const wait = async (ms) => { mock.timers.tick(ms); await flush(); };
-const last = () => textOf(logs.serverlog.at(-1));
+const lastIn = (name) => textOf(logs[name].at(-1));
+const last = () => lastIn('serverlog');
 
-test('leaving, being kicked and being banned are told apart', async () => {
+test('leaves go to the leave log; kicks, bans and unbans go to the mod log', async () => {
   const gone = (u) => ({ guild, user: u, joinedTimestamp: Date.now() - 4 * 86_400_000, roles: { cache: new Collection([['r2', guild.roles.cache.get('r2')]]) } });
+  const counts = () => Object.fromEntries(Object.entries(logs).map(([k, v]) => [k, v.length]));
+  const wasOnly = (before, name, extra = 1) => {
+    const now = counts();
+    for (const k of Object.keys(now)) assert.equal(now[k], before[k] + (k === name ? extra : 0), `${k} log`);
+  };
 
-  // just left: no audit entry
-  let n = logs.serverlog.length;
+  // just left: no audit entry -> leave log only
+  let before = counts();
   let p = slog.memberLeft(gone(person('amy')));
   await wait(slog.AUDIT_DELAY_MS);
   await p;
-  assert.equal(logs.serverlog.length, n + 1);
-  assert.match(last(), /📤 Member left\n\*\*Amy\*\* · `amy#0`/);
-  assert.match(last(), /\*\*Joined\*\* .*\n\*\*Roles\*\* <@&r2>/);
-  json(logs.serverlog.at(-1));
+  wasOnly(before, 'leavelog');
+  assert.match(lastIn('leavelog'), /📤 Member left\n\*\*Amy\*\* · `amy#0`/);
+  assert.match(lastIn('leavelog'), /\*\*Joined\*\* .*\n\*\*Roles\*\* <@&r2>/);
+  json(logs.leavelog.at(-1));
 
-  // a bot with no audit entry
+  // a bot with no audit entry -> leave log
   p = slog.memberLeft(gone(person('arcane', { bot: true })));
   await wait(slog.AUDIT_DELAY_MS);
   await p;
-  assert.match(last(), /🤖 Bot removed/);
+  assert.match(lastIn('leavelog'), /🤖 Bot removed/);
 
-  // kicked: the audit log says who and why
+  // kicked: the audit log says who and why -> mod log only
   guild.audit.push({ type: AuditLogEvent.MemberKick, target: { id: 'bloxlink' }, executor: person('mod'), reason: 'No longer needed', createdTimestamp: Date.now() });
+  before = counts();
   p = slog.memberLeft(gone(person('bloxlink', { bot: true })));
   await wait(slog.AUDIT_DELAY_MS);
   await p;
-  assert.match(last(), /👢 Bot kicked/);
-  assert.match(last(), /\*\*Kicked by\*\* \*\*Mod\*\*\n\*\*Reason\*\* No longer needed/);
+  wasOnly(before, 'modlog');
+  assert.match(lastIn('modlog'), /👢 Bot kicked/);
+  assert.match(lastIn('modlog'), /\*\*Kicked by\*\* \*\*Mod\*\*\n\*\*Reason\*\* No longer needed/);
 
-  // banned: ban event first, then the leave event: ONE message
+  // banned: ban event first, then the leave event: ONE message, in the mod log
   guild.audit.push({ type: AuditLogEvent.MemberBanAdd, target: { id: 'raider' }, executor: person('mod'), reason: null, createdTimestamp: Date.now() });
-  n = logs.serverlog.length;
+  before = counts();
   const b = slog.memberBanned({ guild, user: person('raider'), reason: 'Raiding', partial: false });
   const l = slog.memberLeft(gone(person('raider')));
   await wait(slog.AUDIT_DELAY_MS);
   await Promise.all([b, l]);
-  assert.equal(logs.serverlog.length, n + 1);
-  assert.match(last(), /🔨 Member banned/);
-  assert.match(last(), /\*\*Banned by\*\* \*\*Mod\*\*\n\*\*Reason\*\* Raiding/);
-  json(logs.serverlog.at(-1));
+  wasOnly(before, 'modlog');
+  assert.match(lastIn('modlog'), /🔨 Member banned/);
+  assert.match(lastIn('modlog'), /\*\*Banned by\*\* \*\*Mod\*\*\n\*\*Reason\*\* Raiding/);
+  json(logs.modlog.at(-1));
 
   // banned: the leave event is noticed first and finds the ban itself, then the ban event stays quiet
   guild.bans.fetch = async () => ({ reason: 'Scamming' });
-  n = logs.serverlog.length;
+  before = counts();
   const l2 = slog.memberLeft(gone(person('scammer')));
   await wait(slog.AUDIT_DELAY_MS);
   await l2;
   const b2 = slog.memberBanned({ guild, user: person('scammer'), reason: 'Scamming', partial: false });
   await wait(slog.AUDIT_DELAY_MS);
   await b2;
-  assert.equal(logs.serverlog.length, n + 1);
-  assert.match(last(), /🔨 Member banned[\s\S]*Scamming/);
+  wasOnly(before, 'modlog');
+  assert.match(lastIn('modlog'), /🔨 Member banned[\s\S]*Scamming/);
   guild.bans.fetch = async () => { throw new Error('Unknown Ban'); };
+
+  // unban -> mod log
+  before = counts();
+  await slog.memberUnbanned({ guild, user: person('raider') });
+  wasOnly(before, 'modlog');
+  assert.match(lastIn('modlog'), /🕊️ Member unbanned/);
+});
+
+test('a kick or ban done with /kick or /ban is not logged a second time', async () => {
+  const { modLog } = await import('../src/lib/ui.js');
+  const gone = (u) => ({ guild, user: u, joinedTimestamp: Date.now(), roles: { cache: new Collection() } });
+  const count = () => logs.modlog.length;
+
+  // /kick: the command logs it (that's the 1 message), then the kick event arrives
+  guild.audit.push({ type: AuditLogEvent.MemberKick, target: { id: 'k1' }, executor: person('botself'), reason: 'mod#0: spamming', createdTimestamp: Date.now() });
+  let n = count();
+  await modLog(guild, { action: 'Kick', target: person('k1'), moderator: person('mod'), reason: 'spamming' });
+  let p = slog.memberLeft(gone(person('k1')));
+  await wait(slog.AUDIT_DELAY_MS);
+  await p;
+  assert.equal(count(), n + 1);
+
+  // /ban: same
+  guild.audit.push({ type: AuditLogEvent.MemberBanAdd, target: { id: 'b1' }, executor: person('botself'), reason: 'mod#0: scam', createdTimestamp: Date.now() });
+  n = count();
+  await modLog(guild, { action: 'Ban', target: person('b1'), moderator: person('mod'), reason: 'scam' });
+  const b = slog.memberBanned({ guild, user: person('b1'), reason: 'mod#0: scam', partial: false });
+  p = slog.memberLeft(gone(person('b1')));
+  await wait(slog.AUDIT_DELAY_MS);
+  await Promise.all([b, p]);
+  assert.equal(count(), n + 1);
+
+  // the bot's own raid-protection kicks are summed up by the raid alert, not logged one by one
+  guild.members = { me: { id: 'botself' } };
+  guild.audit.push({ type: AuditLogEvent.MemberKick, target: { id: 'r1' }, executor: person('botself'), reason: 'Raid protection', createdTimestamp: Date.now() });
+  n = count();
+  const leaves = logs.leavelog.length;
+  p = slog.memberLeft(gone(person('r1')));
+  await wait(slog.AUDIT_DELAY_MS);
+  await p;
+  assert.equal(count(), n);
+  assert.equal(logs.leavelog.length, leaves);
+  delete guild.members;
 });
 
 test('role changes for one person become ONE message, written in words', async () => {
@@ -341,19 +392,35 @@ test('member logs: join, nickname (ignoring 🔥 badge and AFK tag), timeout, un
   await slog.memberUpdated(mk(null), mk(null, Date.now() + 60_000));
   assert.match(last(), /Timed out/);
 
+  logs.serverlog.slice(c).forEach((m) => json(m));
+});
+
+test('joins go to the join log, not the server log', async () => {
+  const joins = logs.joinlog.length;
+  const server = logs.serverlog.length;
   const newbie = joiner('newbie', 2);
   newbie.user.globalName = 'Newbie';
   await slog.memberJoined(newbie);
-  assert.match(last(), /📥 Member joined\n\*\*Newbie\*\*[\s\S]*new account/);
+  assert.equal(logs.joinlog.length, joins + 1);
+  assert.equal(logs.serverlog.length, server);
+  assert.match(lastIn('joinlog'), /📥 Member joined\n\*\*Newbie\*\*[\s\S]*new account/);
   const botJoin = joiner('helper', 900);
   botJoin.user.bot = true;
   await slog.memberJoined(botJoin);
-  assert.match(last(), /🤖 Bot added/);
-  assert.doesNotMatch(last(), /new account/);
+  assert.match(lastIn('joinlog'), /🤖 Bot added/);
+  assert.doesNotMatch(lastIn('joinlog'), /new account/);
+  logs.joinlog.slice(joins).forEach((m) => json(m));
+});
 
-  await slog.memberUnbanned({ guild, user: person('raider') });
-  assert.match(last(), /🕊️ Member unbanned/);
-  logs.serverlog.slice(c).forEach((m) => json(m));
+test('a join or leave channel that isn\'t set falls back to the server log', async () => {
+  await updateSettings('g1', { joinLogChannel: null, leaveLogChannel: null, modLogChannel: null });
+  const server = logs.serverlog.length;
+  await slog.memberJoined(joiner('late', 50));
+  const p = slog.memberLeft({ guild, user: person('late2'), joinedTimestamp: Date.now(), roles: { cache: new Collection() } });
+  await wait(slog.AUDIT_DELAY_MS);
+  await p;
+  assert.equal(logs.serverlog.length, server + 2);
+  await updateSettings('g1', { joinLogChannel: 'joinlog', leaveLogChannel: 'leavelog', modLogChannel: 'modlog' });
 });
 
 // ---------------------------------------------------------------- setup

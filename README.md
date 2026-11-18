@@ -46,7 +46,9 @@ Every pick saves instantly. After the last step, a summary page shows everything
 | 🎉 Level-up channel | Where level-up messages go (otherwise the channel they chatted in) |
 | 🎁 Level rewards | Pick a role and the level that unlocks it |
 | 🕛 Streak timezone | When a "day" ends for chat streaks (default UTC) |
-| 🧾 Server log channel | Message deletes/edits, joins/leaves, role/nickname changes, bans |
+| 🧾 Server log channel | Message deletes/edits, role and nickname changes, timeouts |
+| 📥 Join log channel | Everyone who joins |
+| 📤 Leave log channel | Everyone who leaves |
 | 🤖 AutoMod filters | Which rules are on (spam, invites, scams, mass mentions, blocked words, links, caps) |
 | 🤬 Blocked words | Your list of words AutoMod removes |
 | 🛡️ AutoMod exempt roles | Roles AutoMod ignores (staff are always exempt) |
@@ -147,12 +149,16 @@ than 30 days are kicked with a polite DM, staff get an alert with an **End raid 
 off by itself after 10 quiet minutes. `/raidmode` turns it on or off by hand. Separately, **Minimum account age**
 kicks very new accounts at any time.
 
-**Server logs** go to the Server log channel: deleted messages (with text and file names), edits (before/after
-with a jump button), bulk deletes (as a text file), joins (flags accounts under 7 days), nickname changes (the 🔥
-streak badge and `[AFK]` tag are ignored), timeouts and unbans. People who go away are told apart: **left**,
-**kicked** or **banned** (and for bots, **removed**/**kicked**), with who did it and why. Role changes for the same
-person are merged into **one message** with *Roles added* and *Roles removed* lines, plus who changed them.
-Knowing who kicked, banned or changed roles needs the **View Audit Log** permission.
+**Logs** are split across channels (set them in `/setup`; one that isn't set falls back to the server log):
+- **Mod log:** kicks, bans and unbans, with who did it and why. This includes ones done from Discord itself, not just
+  `/kick` and `/ban` (those are never posted twice). AutoMod hits, raid alerts, warnings and timeouts from commands go here too.
+- **Join log:** everyone who joins (flags accounts under 7 days old). Bots show as *Bot added*.
+- **Leave log:** everyone who leaves, with their roles. Bots show as *Bot removed*.
+- **Server log:** deleted messages (with text and file names), edits (before/after with a jump button), bulk deletes
+  (as a text file), nickname changes (the 🔥 streak badge and `[AFK]` tag are ignored) and timeouts. Role changes for
+  the same person are merged into **one message** with *Roles added* and *Roles removed* lines, plus who changed them.
+
+Telling a leave from a kick or ban, and knowing who did it, needs the **View Audit Log** permission.
 
 These need **Message Content Intent** turned on in the Developer Portal (Bot tab).
 

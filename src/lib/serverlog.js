@@ -4,7 +4,7 @@ import { ActionRowBuilder, AttachmentBuilder, AuditLogEvent, ButtonBuilder, Butt
 import { deletedByAutomod } from './automod.js';
 import { stripAfk, stripBadge } from './nickname.js';
 import { getSettings } from './settings.js';
-import { card, colors, divider, footnote, section, text, thumb, v2 } from './ui.js';
+import { card, colors, divider, footnote, section, text, thumb, v2, wasLoggedByCommand } from './ui.js';
 
 const DAY = 86_400_000;
 const ts = (ms, style = 'R') => `<t:${Math.floor(ms / 1000)}:${style}>`;
@@ -15,10 +15,19 @@ const quote = (s, max = 900) => {
 };
 const avatar = (u) => u?.displayAvatarURL?.({ size: 128 }) ?? null;
 
-async function send(guild, payload) {
-  const { serverLogChannel } = await getSettings(guild.id);
-  if (!serverLogChannel) return;
-  const ch = await guild.channels.fetch(serverLogChannel).catch(() => null);
+/**
+ * Where each kind of log goes (set in /setup). A channel that isn't set falls back to the server log.
+ *   server: deleted/edited messages, role and nickname changes, timeouts
+ *   mod:    kicks, bans, unbans
+ *   join / leave: people joining / leaving
+ */
+const CHANNEL_SETTING = { server: 'serverLogChannel', mod: 'modLogChannel', join: 'joinLogChannel', leave: 'leaveLogChannel' };
+
+async function send(guild, payload, kind = 'server') {
+  const settings = await getSettings(guild.id);
+  const channelId = settings[CHANNEL_SETTING[kind]] ?? settings.serverLogChannel;
+  if (!channelId) return null;
+  const ch = await guild.channels.fetch(channelId).catch(() => null);
   return ch?.isTextBased() ? ch.send(payload).catch((err) => console.error('Server log failed:', err.message)) : null;
 }
 
@@ -121,7 +130,7 @@ export async function memberJoined(member) {
       `**Account made** ${ts(member.user.createdTimestamp)}${age < 7 * DAY && !member.user.bot ? ' · ⚠️ **new account**' : ''}`,
       `-# Member #${member.guild.memberCount.toLocaleString('en-US')}`,
     ],
-  }));
+  }), 'join');
 }
 
 // A ban makes the member leave AND fires a ban event. Whichever notices first logs it; the other stays quiet.
@@ -134,9 +143,13 @@ function claimBan(guildId, userId) {
   return true;
 }
 
+/** Did this bot do it itself? Its own bans and kicks are logged by the command (or, for raid protection, by the raid alert). */
+const byThisBot = (guild, executor) => Boolean(executor?.id) && executor.id === guild.members?.me?.id;
+
 async function reportBan(guild, user, reason) {
   if (!claimBan(guild.id, user.id)) return;
   const audit = await auditEntry(guild, AuditLogEvent.MemberBanAdd, user.id);
+  if (wasLoggedByCommand(guild.id, user.id)) return; // /ban already posted it in the mod log
   await send(guild, entry(colors.bad, {
     title: user.bot ? '🔨 Bot banned' : '🔨 Member banned', user,
     lines: [
@@ -144,7 +157,7 @@ async function reportBan(guild, user, reason) {
       audit?.executor ? `**Banned by** ${nameOf(audit.executor)}` : null,
       `**Reason** ${reason ?? audit?.reason ?? '*none given*'}`,
     ].filter(Boolean),
-  }));
+  }), 'mod');
 }
 
 export async function memberBanned(ban) {
@@ -154,7 +167,7 @@ export async function memberBanned(ban) {
 }
 
 export async function memberUnbanned(ban) {
-  await send(ban.guild, entry(colors.ok, { title: '🕊️ Member unbanned', user: ban.user, lines: [who(ban.user)] }));
+  await send(ban.guild, entry(colors.ok, { title: '🕊️ Member unbanned', user: ban.user, lines: [who(ban.user)] }), 'mod');
 }
 
 /** Someone is gone: tell apart banned, kicked, and left (or a bot being removed). */
@@ -168,6 +181,8 @@ export async function memberLeft(member) {
   if (ban) return reportBan(guild, user, ban.reason);
 
   const kick = await auditEntry(guild, AuditLogEvent.MemberKick, user.id);
+  if (kick && wasLoggedByCommand(guild.id, user.id)) return; // /kick already posted it in the mod log
+  if (kick && byThisBot(guild, kick.executor) && String(kick.reason ?? '').startsWith('Raid protection')) return; // the raid alert covers these
   const roles = member.roles?.cache?.filter((r) => r.id !== guild.id).map((r) => roleText(guild, r)) ?? [];
   const title = kick ? (user.bot ? '👢 Bot kicked' : '👢 Member kicked') : (user.bot ? '🤖 Bot removed' : '📤 Member left');
   await send(guild, entry(kick ? colors.bad : colors.warn, {
@@ -179,7 +194,7 @@ export async function memberLeft(member) {
       member.joinedTimestamp ? `**Joined** ${ts(member.joinedTimestamp)}` : null,
       roles.length ? `**Roles** ${roles.slice(0, 15).join(' ')}${roles.length > 15 ? ` +${roles.length - 15}` : ''}` : null,
     ].filter(Boolean),
-  }));
+  }), kick ? 'mod' : 'leave');
 }
 
 // ---------------------------------------------------------------- role changes (merged per person)
