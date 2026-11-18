@@ -41,6 +41,43 @@ test('buttons: "Label | link" per line, up to 5', () => {
   assert.match(C.parseButtons(Array(6).fill('A | https://x.com').join('\n')).error, /up to 5 buttons/);
 });
 
+// ---------------------------------------------------------------- #channel and @Role
+
+const named = (list) => new Map(list.map(([id, name]) => [id, { id, name }]));
+const server = {
+  id: 'g1',
+  channels: { cache: named([['10', '┃📜・rules'], ['11', 'bot-logs'], ['12', 'general'], ['13', 'chat'], ['14', 'chat']]) },
+  roles: { cache: named([['g1', '@everyone'], ['20', 'VIP'], ['21', 'Server Booster']]) },
+};
+
+test('typed #channel and @Role become real links', () => {
+  assert.equal(C.resolveMentions('Please read #rules first!', server), 'Please read <#10> first!');
+  assert.equal(C.resolveMentions('Logs: #bot-logs and #general', server), 'Logs: <#11> and <#12>');
+  assert.equal(C.resolveMentions('Ask a (#general) mod', server), 'Ask a (<#12>) mod');
+  assert.equal(C.resolveMentions('#rules', server), '<#10>', 'at the very start');
+  assert.equal(C.resolveMentions('Thanks @VIP and @ServerBooster!', server), 'Thanks <@&20> and <@&21>!');
+  assert.equal(C.resolveMentions('Line one\n• read #RULES', server), 'Line one\n• read <#10>', 'case does not matter');
+});
+
+test('things that must not change are left alone', () => {
+  const same = [
+    '## Heading', '### Another heading', '# Big', 'You are member #{count}', 'rule #1', 'mail me at bob@vip.com',
+    '#nonexistent channel', 'Ping @everyone and @here', '@NoSuchRole', 'a#rules is not a mention', '<#10> already linked',
+  ];
+  for (const t of same) assert.equal(C.resolveMentions(t, server), t, t);
+  // two channels with the same name: linking the wrong one would be worse than doing nothing
+  assert.equal(C.resolveMentions('see #chat', server), 'see #chat');
+});
+
+test('editing shows #rules again instead of <#10>, and it round-trips', () => {
+  const stored = 'Read <#10>, then <#11>. Thanks <@&20> and <@&21>!';
+  const readable = C.readableMentions(stored, server);
+  assert.equal(readable, 'Read #rules, then #bot-logs. Thanks @VIP and @ServerBooster!');
+  assert.equal(C.resolveMentions(readable, server), stored);
+  // an ambiguous or deleted channel keeps its raw form so nothing is lost
+  assert.equal(C.readableMentions('<#13> <#99>', server), '<#13> <#99>');
+});
+
 // ---------------------------------------------------------------- showing it
 
 const card = (extra = {}) => ({ type: 'card', text: '## Rules\n• Be kind', color: 0x5865f2, thumb: null, image: null, buttons: [], ...extra });
@@ -96,6 +133,7 @@ const channel = {
 const guild = {
   id: 'g1', name: 'Wobble League', memberCount: 150, iconURL: () => 'https://cdn.discordapp.com/i.png',
   channels: { fetch: async () => channel, cache: new Map([['rules', channel]]) },
+  roles: { cache: new Map([['vip', { id: 'vip', name: 'VIP' }]]) },
 };
 const me = { id: 'admin', displayName: 'Admin', guild, user: { username: 'admin', displayAvatarURL: () => 'https://cdn.discordapp.com/a.png' } };
 
@@ -316,4 +354,22 @@ test('/message welcome: starts from the standard welcome, saves your own, and ca
   const reset = await btn('reset');
   assert.match(shown(reset), /standard welcome card again/);
   assert.equal((await getSettings('g1')).welcomeMessage, undefined);
+});
+
+test('in the builder: typing #rules and @VIP links them, and editing shows them as typed', async () => {
+  await cmd.execute(ix({ sub: 'create' }));
+  const added = await modal('card:new', { text: '## Welcome\nRead #rules and say hi to @VIP. Rule #1: be kind. Member #{count}' });
+  assert.doesNotMatch(shown(added), /❌/);
+  const preview = await btn('preview');
+  assert.match(textOf(last(preview).p), /Read <#rules> and say hi to <@&vip>\. Rule #1: be kind\. Member #\{count\}/);
+
+  // opening the card again to edit: the box shows what a person would type
+  const pick = ix({ customId: 'message:b:pick', values: ['0'] });
+  await cmd.handleSelect(pick);
+  const edit = await btn('edit');
+  const boxes = last(edit).p.toJSON().components.map((r) => r.components[0]);
+  assert.match(boxes[0].value, /Read #rules and say hi to @VIP\./);
+  assert.doesNotMatch(boxes[0].value, /<#/);
+  assert.match(boxes[0].placeholder, /#rules/);
+  await btn('cancel');
 });

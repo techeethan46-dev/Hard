@@ -125,6 +125,10 @@ Use **Edit, Up, Down, Delete** on any block, **Preview** to see the real thing (
 message is updated in place. Messages that were deleted are forgotten.
 
 Good to know:
+- **Linking channels and roles:** just type `#rules` or `@VIP` in the text and it becomes a real, clickable link when you
+  save (names are matched ignoring case, spaces and symbols, so `#rules` finds `┃📜・rules`; for a role with spaces, leave
+  the spaces out, like `@ServerBooster`). If two channels share a name it's left alone. You can also paste `<#channelID>`
+  yourself. Role links don't ping anyone.
 - One message holds **3,800 characters** (Discord's limit is 4,000 per message). For long rules, make several messages one
   after another, like a banner message followed by one message per section.
 - Picture links must start with `https://` and point straight to the picture (Imgur, a GitHub raw link, etc.). Pasted

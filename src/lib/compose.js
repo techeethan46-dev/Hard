@@ -131,3 +131,42 @@ export const defaultWelcome = () => [{
     '-# You\'re member #{count}',
   ].join('\n'),
 }];
+
+// ---------------------------------------------------------------- #channel and @Role while typing
+
+// Names are compared ignoring case, spaces and symbols, so "#rules" finds a channel called "┃📜・rules".
+const simple = (s) => String(s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const TOKEN = (sign) => new RegExp(`(^|[\\s(\\[])${sign}([\\p{L}\\p{N}][\\p{L}\\p{N}_-]*)`, 'gu');
+const asList = (cache) => [...(cache?.values?.() ?? [])];
+const only = (items, name) => {
+  const found = items.filter((x) => simple(x.name) && simple(x.name) === simple(name));
+  return found.length === 1 ? found[0] : null; // two with the same name: better to leave it than link the wrong one
+};
+
+/** Turns typed `#rules` into a real channel link and `@VIP` into a role link, when exactly one channel/role has that name. */
+export function resolveMentions(input, guild) {
+  const channels = asList(guild.channels?.cache);
+  const roles = asList(guild.roles?.cache).filter((r) => r.id !== guild.id);
+  return String(input ?? '')
+    .replace(TOKEN('#'), (m, pre, name) => { const c = only(channels, name); return c ? `${pre}<#${c.id}>` : m; })
+    .replace(TOKEN('@'), (m, pre, name) => {
+      if (/^(everyone|here)$/i.test(name)) return m;
+      const r = only(roles, name);
+      return r ? `${pre}<@&${r.id}>` : m;
+    });
+}
+
+/** The reverse, for editing: `<#123>` becomes `#rules` again (only when typing that back would find the same channel). */
+export function readableMentions(input, guild) {
+  const channels = asList(guild.channels?.cache);
+  const roles = asList(guild.roles?.cache).filter((r) => r.id !== guild.id);
+  const token = (name) => String(name ?? '').replace(/[^\p{L}\p{N}_-]+/gu, '');
+  const back = (sign, id, items) => {
+    const item = items.find((x) => x.id === id);
+    const t = item && token(item.name);
+    return t && /^[\p{L}\p{N}]/u.test(t) && only(items, t)?.id === id ? `${sign}${t}` : null;
+  };
+  return String(input ?? '')
+    .replace(/<#(\w+)>/g, (m, id) => back('#', id, channels) ?? m)
+    .replace(/<@&(\w+)>/g, (m, id) => back('@', id, roles) ?? m);
+}
