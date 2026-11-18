@@ -3,6 +3,7 @@ import { getSettings } from '../lib/settings.js';
 import { screenJoin } from '../lib/raid.js';
 import { memberJoined } from '../lib/serverlog.js';
 import { syncMember } from '../lib/roles.js';
+import { renderBlocks, welcomeVars } from '../lib/compose.js';
 import { card, colors, divider, footnote, section, text, thumb, v2 } from '../lib/ui.js';
 
 export const name = Events.GuildMemberAdd;
@@ -16,10 +17,17 @@ export async function execute(member) {
   // new members get the Unverified role (if configured).
   await syncMember(member).catch((err) => console.error('Join sync failed:', err.message));
 
-  const { welcomeChannel, gameName } = await getSettings(member.guild.id);
+  const { welcomeChannel, gameName, welcomeMessage } = await getSettings(member.guild.id);
   if (!welcomeChannel) return;
   const channel = await member.guild.channels.fetch(welcomeChannel).catch(() => null);
   if (!channel?.isTextBased()) return;
+
+  // Your own welcome message from /message welcome, if you wrote one.
+  if (welcomeMessage?.length) {
+    await channel.send(renderBlocks(welcomeMessage, welcomeVars(member, gameName), { mentions: { users: [member.id] } }))
+      .catch((err) => console.error('Welcome message failed:', err.message));
+    return;
+  }
 
   await channel.send(v2(card(colors.brand,
     section([

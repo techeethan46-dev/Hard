@@ -46,6 +46,7 @@ async function mongoBackend(db) {
   const settings = db.collection('guildSettings');
   const stats = db.collection('memberStats');
   const giveaways = db.collection('giveaways');
+  const composed = db.collection('composedMessages');
 
   await Promise.all([
     links.createIndex({ robloxId: 1 }),
@@ -57,6 +58,7 @@ async function mongoBackend(db) {
     stats.createIndex({ guildId: 1, 'streak.lastDay': 1 }),
     giveaways.createIndex({ ended: 1, endsAt: 1 }),
     giveaways.createIndex({ guildId: 1, endsAt: -1 }),
+    composed.createIndex({ guildId: 1, createdAt: -1 }),
   ]);
 
   // Stored with _id = Discord/channel ID; hand back plain objects without Mongo's fields.
@@ -70,6 +72,14 @@ async function mongoBackend(db) {
   const sid = (g, u) => `${g}:${u}`;
   const gw = (doc) => (doc ? { ...clean(doc), messageId: doc._id } : null);
   return {
+    // Messages made with /message, so they can be edited later: { messageId, guildId, channelId, blocks, authorId, createdAt }
+    composed: {
+      create: async (m) => { await composed.insertOne({ _id: m.messageId, ...m }); },
+      get: async (id) => gw(await composed.findOne({ _id: id })),
+      update: async (id, patch) => { await composed.updateOne({ _id: id }, { $set: patch }); },
+      delete: async (id) => { await composed.deleteOne({ _id: id }); },
+      list: async (guildId, limit = 25) => (await composed.find({ guildId }).sort({ createdAt: -1 }).limit(limit).toArray()).map(gw),
+    },
     giveaways: {
       create: async (g) => { await giveaways.insertOne({ _id: g.messageId, ...g, entries: [], ended: false, winnerIds: [] }); },
       get: async (id) => gw(await giveaways.findOne({ _id: id })),
@@ -167,7 +177,7 @@ async function mongoBackend(db) {
 // ---------------------------------------------------------------- In-memory / JSON file (dev & tests)
 
 export function memoryBackend(path = null) {
-  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {}, stats: {}, giveaways: {} };
+  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {}, stats: {}, giveaways: {}, composed: {} };
   if (path) {
     mkdirSync(dirname(path), { recursive: true });
     try {
@@ -189,6 +199,14 @@ export function memoryBackend(path = null) {
   const noEntries = (g) => { const { entries, ...rest } = g; return copy(rest); };
   return {
     _data: data,
+    composed: {
+      create: async (m) => { data.composed[m.messageId] = structuredClone(m); save(); },
+      get: async (id) => copy(data.composed[id]),
+      update: async (id, patch) => { if (data.composed[id]) Object.assign(data.composed[id], structuredClone(patch)); save(); },
+      delete: async (id) => { delete data.composed[id]; save(); },
+      list: async (guildId, limit = 25) => Object.values(data.composed)
+        .filter((m) => m.guildId === guildId).sort((a, b) => b.createdAt - a.createdAt).slice(0, limit).map((m) => copy(m)),
+    },
     giveaways: {
       create: async (g) => { data.giveaways[g.messageId] = { ...structuredClone(g), entries: [], ended: false, winnerIds: [] }; save(); },
       get: async (id) => copy(data.giveaways[id]),
