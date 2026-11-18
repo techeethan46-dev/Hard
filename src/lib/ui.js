@@ -92,16 +92,25 @@ const actionStyle = {
   'Warning removed': ['🧽', colors.ok], 'Warnings cleared': ['🧹', colors.ok], 'Timeout removed': ['🔊', colors.ok],
 };
 
+// Kicks and bans done with /kick and /ban are logged here. The audit-log based logging in serverlog.js checks this
+// so the same kick or ban isn't posted twice.
+const loggedByCommand = new Map();
+export const wasLoggedByCommand = (guildId, userId) => Date.now() - (loggedByCommand.get(`${guildId}:${userId}`) ?? 0) < 120_000;
+
 export async function modLog(guild, { action, target, moderator, reason, color, extra }) {
   const { modLogChannel } = await getSettings(guild.id);
   if (!modLogChannel) return;
   const channel = await guild.channels.fetch(modLogChannel).catch(() => null);
   if (!channel?.isTextBased()) return;
+  if (action === 'Kick' || action === 'Ban') {
+    loggedByCommand.set(`${guild.id}:${target.id}`, Date.now());
+    if (loggedByCommand.size > 1000) loggedByCommand.clear();
+  }
 
   const [icon, accent] = actionStyle[action] ?? (action.startsWith('Timeout') ? ['🔇', colors.warn] : ['🛡️', color ?? colors.warn]);
   const lines = [
     `### ${icon} ${action}`,
-    `**Member** ${target} \`${target.tag ?? target.username}\``,
+    `**Member** **${target.globalName ?? target.username ?? target.id}** · \`${target.tag ?? target.username}\``,
     `**By** ${moderator}`,
     `**Reason** ${reason || 'No reason given'}`,
     ...(extra ? [`**${extra.name}** ${extra.value}`] : []),
