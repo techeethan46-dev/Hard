@@ -4,7 +4,7 @@ import {
 } from 'discord.js';
 import {
   MAX_BLOCKS, MAX_COMPONENTS, MAX_TEXT, componentCount, defaultWelcome, parseButtons, parseColor, parseImage, problem,
-  renderBlocks, textLength, welcomeVars,
+  readableMentions, renderBlocks, resolveMentions, textLength, welcomeVars,
 } from '../lib/compose.js';
 import { getSettings, updateSettings } from '../lib/settings.js';
 import { store } from '../lib/store.js';
@@ -129,15 +129,15 @@ function builder(d, guild, error) {
     rows,
     done,
     footnote(d.mode === 'welcome'
-      ? 'Placeholders: {user} {username} {server} {count} {game} · picture links can use {avatar} or {servericon}'
-      : 'Each message holds up to 3,800 characters. For long rules, post several messages one after the other.'),
+      ? 'Placeholders: {user} {username} {server} {count} {game} · {avatar} {servericon} for pictures · #channel and @Role become links'
+      : 'Type #channel or @Role in the text and it becomes a link · up to 3,800 characters per message, so post several for long rules'),
   ));
 }
 
-function cardModal(index, b) {
+function cardModal(index, b, guild) {
   return new ModalBuilder().setCustomId(`message:m:card:${index}`).setTitle(b ? 'Edit card' : 'New card').addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('text').setLabel('Text (## Heading, **bold**, - lists)')
-      .setStyle(TextInputStyle.Paragraph).setMaxLength(3800).setValue(b?.text ?? '').setPlaceholder('## 📜 Rules\n• Be kind to everyone\n• No spam')),
+      .setStyle(TextInputStyle.Paragraph).setMaxLength(3800).setValue(b ? readableMentions(b.text, guild) : '').setPlaceholder('## 📜 Rules\n• Be kind\n• Read #rules first')),
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('color').setLabel(`Color (${SAMPLE_COLORS})`)
       .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(20).setValue(b?.color != null ? `#${b.color.toString(16).padStart(6, '0')}` : '')),
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('thumb').setLabel('Small picture on the right (link)')
@@ -177,9 +177,9 @@ export async function handleButton(interaction) {
   const sel = d.selected !== null ? d.blocks[d.selected] : null;
 
   switch (action) {
-    case 'addcard': return interaction.showModal(cardModal('new'));
+    case 'addcard': return interaction.showModal(cardModal('new', null, interaction.guild));
     case 'addbanner': return interaction.showModal(bannerModal('new'));
-    case 'edit': return sel ? interaction.showModal(sel.type === 'banner' ? bannerModal(d.selected, sel) : cardModal(d.selected, sel)) : update();
+    case 'edit': return sel ? interaction.showModal(sel.type === 'banner' ? bannerModal(d.selected, sel) : cardModal(d.selected, sel, interaction.guild)) : update();
     case 'up':
     case 'down': {
       const to = d.selected + (action === 'up' ? -1 : 1);
@@ -198,7 +198,9 @@ export async function handleButton(interaction) {
     case 'preview': {
       const why = problem(d.blocks);
       if (why) return update(why);
-      return interaction.reply(ephemeral(renderBlocks(d.blocks, welcomeVars(interaction.member, (await getSettings(interaction.guildId)).gameName))));
+      // Only the welcome message has placeholders; a normal post shows exactly what will be sent.
+      const vars = d.mode === 'welcome' ? welcomeVars(interaction.member, (await getSettings(interaction.guildId)).gameName) : {};
+      return interaction.reply(ephemeral(renderBlocks(d.blocks, vars)));
     }
     case 'cancel':
       drafts.delete(interaction.user.id);
@@ -228,7 +230,7 @@ export async function handleModal(interaction) {
     if (image.error || !image.value) return update(image.error ?? 'Paste a link to the banner picture.');
     block = { type: 'banner', image: image.value, color: color.value };
   } else {
-    const body = get('text').trim();
+    const body = resolveMentions(get('text').trim(), interaction.guild); // #rules and @VIP become real links
     const thumb = parseImage(get('thumb'), 'small picture');
     const image = parseImage(get('image'), 'big picture');
     const buttons = parseButtons(get('buttons'));
