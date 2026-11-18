@@ -116,8 +116,13 @@ as you type. Giveaways are saved in MongoDB, so they still end on time after a r
 ## Self-roles, sticky messages and AFK
 
 **Self-roles:** `/roles create` opens a private builder. Pick up to 25 roles, choose **pick as many as they like** or
-**only one at a time** (picking one removes the others, good for regions or colors), choose **buttons** or a
-**dropdown**, edit the title and text, then press **Post here**. Roles with moderator/admin permissions, bot roles,
+**only one at a time** (picking one removes the others, good for regions or colors), and choose a style:
+- **Reactions** (default): the panel lists `emoji · @role` and the bot adds the reactions. Members react to get the
+  role and remove their reaction to lose it. Each role gets an emoji automatically (its own emoji, or one from a
+  palette); change any of them in the builder. Up to 20 roles, and only emojis from your server or standard emojis.
+- **Buttons**, or a **dropdown**.
+
+Edit the title and text, then press **Post here**. Roles with moderator/admin permissions, bot roles,
 and roles above the bot's role are blocked automatically. A role's emoji (if it has one) shows on its button.
 
 **Sticky messages:** `/sticky set` in a channel. The bot reposts it at the bottom a few seconds after chat goes
@@ -143,8 +148,11 @@ off by itself after 10 quiet minutes. `/raidmode` turns it on or off by hand. Se
 kicks very new accounts at any time.
 
 **Server logs** go to the Server log channel: deleted messages (with text and file names), edits (before/after
-with a jump button), bulk deletes (as a text file), joins (flags accounts under 7 days), leaves (with their roles),
-nickname changes (the 🔥 streak badge is ignored), role changes, timeouts, bans and unbans.
+with a jump button), bulk deletes (as a text file), joins (flags accounts under 7 days), nickname changes (the 🔥
+streak badge and `[AFK]` tag are ignored), timeouts and unbans. People who go away are told apart: **left**,
+**kicked** or **banned** (and for bots, **removed**/**kicked**), with who did it and why. Role changes for the same
+person are merged into **one message** with *Roles added* and *Roles removed* lines, plus who changed them.
+Knowing who kicked, banned or changed roles needs the **View Audit Log** permission.
 
 These need **Message Content Intent** turned on in the Developer Portal (Bot tab).
 

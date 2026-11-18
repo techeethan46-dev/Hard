@@ -135,6 +135,8 @@ test('chatting gives XP once a minute, levels up with a reward, and adds the �
     assert.ok(levelUp && isV2(levelUp));
     assert.match(textOf(levelUp), /reached \*\*level 1\*\*/);
     assert.match(textOf(levelUp), /Unlocked <@&r5>/);
+    assert.doesNotMatch(textOf(levelUp), /▰|▱/, 'no progress bar');
+    assert.match(textOf(levelUp), /\n-# \d+ XP to level 2/, 'the XP line is on its own line so Discord shows it as small text');
     json(levelUp);
 
     // spam within the same minute gives nothing

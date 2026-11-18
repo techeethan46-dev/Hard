@@ -2,10 +2,17 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
+import {
+  MAX_REACTION_ROLES, assignEmojis, blockReason, parseEmoji, savePanel,
+} from '../lib/reactionroles.js';
 import { card, colors, divider, footnote, notice, text, v2 } from '../lib/ui.js';
 
-// Self-assignable roles. /roles create opens a builder; the posted panel works on its own:
-// buttons are "roles:t:<mode>:<roleId>", the dropdown is "roles:s:<mode>" with role IDs as values.
+export { blockReason };
+
+// Self-assignable roles. /roles create opens a builder, then posts a panel in one of three styles:
+//   reactions (default) - members react with an emoji; the panel is saved in settings (see lib/reactionroles.js)
+//   buttons             - "roles:t:<mode>:<roleId>"
+//   menu                - dropdown "roles:s:<mode>" with role IDs as values
 // mode: "m" = pick as many as you like, "o" = only one at a time.
 
 export const data = new SlashCommandBuilder()
@@ -14,25 +21,16 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
   .addSubcommand((s) => s.setName('create').setDescription('Build a role panel and post it in this channel'));
 
-// Roles with these permissions can never be self-assigned.
-const DANGEROUS = ['Administrator', 'ManageGuild', 'ManageRoles', 'ManageChannels', 'ManageMessages', 'ManageWebhooks',
-  'BanMembers', 'KickMembers', 'ModerateMembers', 'MentionEveryone', 'ManageNicknames', 'ManageEvents'];
-
-/** Why a role can't be self-assigned, or null if it's fine. */
-export function blockReason(guild, role) {
-  if (!role) return 'was deleted';
-  if (role.id === guild.id) return 'is @everyone';
-  if (role.managed) return 'belongs to a bot or integration';
-  if (role.position >= guild.members.me.roles.highest.position) return 'is above the bot\'s role';
-  const bad = DANGEROUS.find((p) => role.permissions?.has(PermissionFlagsBits[p]));
-  return bad ? `has the ${bad.replace(/([A-Z])/g, ' $1').trim()} permission` : null;
-}
-
 // ---------------------------------------------------------------- builder
 
+const DEFAULT_TEXT = {
+  reactions: 'React to this message to get a role. Remove your reaction to take it off.',
+  buttons: 'Click a button to get a role. Click it again to remove it.',
+  menu: 'Pick your roles from the menu below.',
+};
 const drafts = new Map(); // userId -> draft
 const draftFor = (id) => drafts.get(id) ?? drafts.set(id, {
-  title: 'Pick your roles', description: 'Click a button to get a role. Click it again to remove it.', roles: [], mode: 'm', style: 'buttons',
+  title: 'Pick your roles', description: DEFAULT_TEXT.reactions, customText: false, roles: [], emojis: {}, mode: 'm', style: 'reactions',
 }).get(id);
 
 export async function execute(interaction) {
@@ -42,10 +40,16 @@ export async function execute(interaction) {
   return interaction.reply(msg);
 }
 
-function builder(guild, d) {
-  const usable = d.roles.filter((id) => !blockReason(guild, guild.roles.cache.get(id)));
+const usableRoles = (guild, d) => d.roles.filter((id) => !blockReason(guild, guild.roles.cache.get(id)));
+
+function builder(guild, d, error) {
+  const usable = usableRoles(guild, d);
   const blocked = d.roles.filter((id) => !usable.includes(id))
     .map((id) => `⚠️ <@&${id}> can't be used: it ${blockReason(guild, guild.roles.cache.get(id))}`);
+  const reactions = d.style === 'reactions';
+  if (reactions) d.emojis = assignEmojis(guild, usable.slice(0, MAX_REACTION_ROLES), d.emojis);
+  const shown = usable.slice(0, reactions ? MAX_REACTION_ROLES : 25);
+
   return v2([
     card(colors.brand,
       text('-# 🎭 ROLE PANEL BUILDER', '### 1 · Pick the roles'),
@@ -60,22 +64,49 @@ function builder(guild, d) {
         { label: 'Only one at a time', description: 'Picking one removes the others (e.g. regions, colors)', value: 'o', emoji: '☝️', default: d.mode === 'o' },
       )),
       new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('roles:b:style').addOptions(
+        { label: 'Reactions', description: 'Members react with an emoji (up to 20 roles)', value: 'reactions', emoji: '😀', default: reactions },
         { label: 'Buttons', description: 'One button per role (best for a few roles)', value: 'buttons', emoji: '🔘', default: d.style === 'buttons' },
         { label: 'Dropdown menu', description: 'A tidy list (best for many roles)', value: 'menu', emoji: '📋', default: d.style === 'menu' },
       )),
+      reactions && shown.length
+        ? [
+          divider(),
+          text('### 😀 Emojis', shown.map((id) => `${d.emojis[id]}  ·  <@&${id}>`),
+            usable.length > MAX_REACTION_ROLES ? `⚠️ A reaction panel holds ${MAX_REACTION_ROLES} roles, so the rest are left out.` : null),
+          new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('roles:b:emojipick')
+            .setPlaceholder('✏️ Change an emoji…').addOptions(shown.map((id) => ({
+              label: (guild.roles.cache.get(id)?.name ?? 'role').slice(0, 100), value: id, description: `Now: ${d.emojis[id]}`,
+            })))),
+        ]
+        : null,
+      error ? text(`❌ ${error}`) : null,
       divider(),
       text('### 3 · Title and text', `**${d.title}**`, d.description || '-# no description'),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('roles:b:text').setLabel('Edit title & text').setEmoji('✏️').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('roles:b:post').setLabel(`Post here${usable.length ? ` (${usable.length} role${usable.length === 1 ? '' : 's'})` : ''}`)
-          .setEmoji('📨').setStyle(ButtonStyle.Success).setDisabled(!usable.length),
+        new ButtonBuilder().setCustomId('roles:b:post').setLabel(`Post here${shown.length ? ` (${shown.length} role${shown.length === 1 ? '' : 's'})` : ''}`)
+          .setEmoji('📨').setStyle(ButtonStyle.Success).setDisabled(!shown.length),
       ),
       footnote('Only you can see this builder · admin and moderator roles are blocked automatically'),
     ),
   ]);
 }
 
-/** The public panel members click. */
+// ---------------------------------------------------------------- the public panels
+
+/** Reaction panel: a list of "emoji · @role"; the bot adds the reactions underneath. */
+export function reactionPanel(d, entries) {
+  return v2(card(colors.brand,
+    text(`## ${d.title}`, d.description || null),
+    divider(),
+    text(entries.map((e) => `${e.emoji}  ·  <@&${e.roleId}>`)),
+    footnote(d.mode === 'o'
+      ? 'You can have one of these at a time · reacting to another swaps it'
+      : 'React to get a role · remove your reaction to take it off'),
+  ));
+}
+
+/** Button or dropdown panel. */
 export function panel(guild, d) {
   const roles = d.roles.map((id) => guild.roles.cache.get(id)).filter((r) => r && !blockReason(guild, r));
   let picker;
@@ -112,7 +143,19 @@ export async function handleSelect(interaction) {
   const d = draftFor(interaction.user.id);
   if (action === 'roles') d.roles = interaction.values;
   if (action === 'mode') d.mode = interaction.values[0];
-  if (action === 'style') d.style = interaction.values[0];
+  if (action === 'style') {
+    d.style = interaction.values[0];
+    if (!d.customText) d.description = DEFAULT_TEXT[d.style];
+  }
+  if (action === 'emojipick') {
+    const roleId = interaction.values[0];
+    return interaction.showModal(new ModalBuilder().setCustomId(`roles:b:emoji:${roleId}`)
+      .setTitle(`Emoji for @${interaction.guild.roles.cache.get(roleId)?.name ?? 'role'}`.slice(0, 45)).addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('emoji').setLabel('One emoji')
+          .setStyle(TextInputStyle.Short).setMaxLength(60).setValue(d.emojis[roleId] ?? '')
+          .setPlaceholder('🎮  (or a server emoji like <:name:123456789012345678>)')),
+      ));
+  }
   return interaction.update(builder(interaction.guild, d));
 }
 
@@ -130,19 +173,62 @@ export async function handleButton(interaction) {
         .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(1000).setValue(d.description)),
     ));
   }
-  if (a === 'post') {
-    const sent = await interaction.channel.send(panel(interaction.guild, d)).catch(() => null);
-    if (!sent) return interaction.reply(notice('bad', 'I can\'t post in this channel. Give me **Send Messages** here.'));
-    drafts.delete(interaction.user.id);
-    return interaction.update(notice('ok', `Your role panel is live in ${interaction.channel}. Run \`/roles create\` again to make another.`, { title: 'Posted!', ephemeral: false }));
-  }
+  if (a === 'post') return post(interaction, d);
 }
 
 export async function handleModal(interaction) {
+  const [, , action, roleId] = interaction.customId.split(':');
   const d = draftFor(interaction.user.id);
-  d.title = interaction.fields.getTextInputValue('title').trim() || 'Pick your roles';
-  d.description = interaction.fields.getTextInputValue('description').trim();
+
+  if (action === 'emoji') {
+    const parsed = parseEmoji(interaction.fields.getTextInputValue('emoji'));
+    if (!parsed) return interaction.update(builder(interaction.guild, d, 'That isn\'t an emoji. Type one emoji, like 🎮.'));
+    const clash = Object.entries(d.emojis).find(([id, e]) => id !== roleId && parseEmoji(e)?.key === parsed.key);
+    if (clash) return interaction.update(builder(interaction.guild, d, `${parsed.display} is already used for <@&${clash[0]}>. Every role needs its own emoji.`));
+    d.emojis[roleId] = parsed.display;
+    return interaction.update(builder(interaction.guild, d));
+  }
+
+  const title = interaction.fields.getTextInputValue('title').trim() || 'Pick your roles';
+  const description = interaction.fields.getTextInputValue('description').trim();
+  d.customText = d.customText || description !== d.description;
+  d.title = title;
+  d.description = description;
   return interaction.update(builder(interaction.guild, d));
+}
+
+async function post(interaction, d) {
+  const { guild, channel } = interaction;
+  if (d.style !== 'reactions') {
+    const sent = await channel.send(panel(guild, d)).catch(() => null);
+    if (!sent) return interaction.reply(notice('bad', 'I can\'t post in this channel. Give me **Send Messages** here.'));
+    drafts.delete(interaction.user.id);
+    return interaction.update(notice('ok', `Your role panel is live in ${channel}. Run \`/roles create\` again to make another.`, { title: 'Posted!', ephemeral: false }));
+  }
+
+  await interaction.deferUpdate();
+  const entries = usableRoles(guild, d).slice(0, MAX_REACTION_ROLES).map((roleId) => ({ roleId, emoji: d.emojis[roleId] }));
+  const sent = await channel.send(reactionPanel(d, entries)).catch(() => null);
+  if (!sent) return interaction.editReply(notice('bad', 'I can\'t post in this channel. Give me **Send Messages** here.', { ephemeral: false }));
+
+  // Add the reactions members will click. An emoji Discord won't accept (e.g. from another server) is dropped.
+  const working = [];
+  const failed = [];
+  for (const e of entries) {
+    try {
+      await sent.react(e.emoji);
+      working.push(e);
+    } catch {
+      failed.push(e);
+    }
+  }
+  if (failed.length) await sent.edit(reactionPanel(d, working)).catch(() => {});
+  await savePanel(guild.id, sent.id, { mode: d.mode, roles: working });
+  drafts.delete(interaction.user.id);
+
+  return interaction.editReply(failed.length
+    ? notice('warn', `Posted in ${channel}, but I couldn't use ${failed.map((e) => `${e.emoji} (<@&${e.roleId}>)`).join(', ')}. The bot can only use emojis from this server, so those roles were left out. Make sure I have **Add Reactions** here.`, { title: 'Posted with a problem', ephemeral: false })
+    : notice('ok', `Your role panel is live in ${channel}. Members react to get a role. Run \`/roles create\` again to make another.`, { title: 'Posted!', ephemeral: false }));
 }
 
 /** Role IDs of every button on this panel. */
