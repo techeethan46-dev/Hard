@@ -67,6 +67,7 @@ Skip any step you don't need; that feature just stays off.
 
 | Command | Who | What it does |
 |---|---|---|
+| `/help` | Everyone | A private menu of the commands, grouped by category. People only see the commands they can use |
 | `/verify` or the **Verify** button | Everyone | Links a Roblox account (see below) |
 | `/update [member]` | Everyone (staff for others) | Re-syncs roles and nickname, e.g. after a promotion |
 | `/unverify` | Everyone | Unlinks your Roblox account |
