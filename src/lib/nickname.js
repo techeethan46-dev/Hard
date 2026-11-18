@@ -46,3 +46,24 @@ export async function setAfkTag(member, on) {
   await member.setNickname(value, on ? 'AFK' : 'Back from AFK');
   return true;
 }
+
+// ---------------------------------------------------------------- both tags together
+
+/** "Superman" + streak 5 + afk -> "[AFK] Superman [5🔥]" (cut to fit Discord's 32 characters). */
+export function composeName(name, { streak = 0, afk = false } = {}) {
+  const core = stripBadge(stripAfk(name));
+  const prefix = afk ? AFK_TAG : '';
+  const badge = streak > 0 ? ` [${streak}🔥]` : '';
+  return `${prefix}${core.slice(0, MAX - prefix.length - badge.length).trimEnd()}${badge}`;
+}
+
+/** Makes a member's nickname show the right streak badge and AFK tag. Skips people the bot can't rename. */
+export async function syncNameTags(member, { streak = 0, afk = false } = {}) {
+  if (!member || member.id === member.guild.ownerId || !member.manageable) return false;
+  const next = composeName(member.nickname ?? member.displayName, { streak, afk });
+  const plain = member.user?.globalName ?? member.user?.username;
+  const value = next === plain ? null : next; // no tags and no custom name: clear the nickname instead of freezing it
+  if (value === member.nickname) return false;
+  await member.setNickname(value, streak ? `Chat streak: ${streak} days` : 'Nickname tags');
+  return true;
+}

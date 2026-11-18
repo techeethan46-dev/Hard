@@ -35,8 +35,13 @@ export const STEPS = [
     desc: 'Transcripts of closed tickets are posted here. Make it staff-only.' },
   { key: 'levelUpChannel', kind: 'channel', section: 'Levels', emoji: '🎉', title: 'Level-up channel',
     desc: 'Level-up messages go here. If you skip this, they show up in whatever channel the person was chatting in.' },
-  { key: 'levelRewards', kind: 'rewards', section: 'Levels', emoji: '🎁', title: 'Level rewards',
+  { key: 'levelRewards', kind: 'rewards', prop: 'level', max: 500, section: 'Levels', emoji: '🎁', title: 'Level rewards',
     desc: 'Give a role when someone reaches a level. Pick a role, then type the level.\nExample: level **5** → @Active, level **20** → @Veteran.' },
+  { key: 'streakRewards', kind: 'rewards', prop: 'days', max: 3650, section: 'Levels', emoji: '🔥', title: 'Streak roles',
+    desc: 'Give a role when someone\'s chat streak reaches a number of days. Pick a role, then type the days.\nExample: **7** days → @Week Warrior, **30** days → @Unstoppable.' },
+  { key: 'streakRolesKeep', kind: 'choice', section: 'Levels', emoji: '🧷', title: 'When a streak ends',
+    options: [['remove', 'Take the streak roles away', 'The roles always match the current streak'], ['keep', 'Let them keep the roles', 'Once earned, a streak role stays']], fallback: 'remove',
+    desc: 'What happens to the streak roles when someone loses their streak? (If they restore it, they get the roles back.)' },
   { key: 'streakTimezone', kind: 'timezone', section: 'Levels', emoji: '🕛', title: 'Streak timezone',
     desc: 'Chat streaks count calendar days. Pick where most of your members live, so a "day" ends at their midnight.' },
   { key: 'serverLogChannel', kind: 'channel', section: 'Safety', emoji: '🧾', title: 'Server log channel',
@@ -136,17 +141,20 @@ export async function handleSelect(interaction) {
 
   if (action === 'rewardrole') {
     const role = interaction.guild.roles.cache.get(values[0]);
+    const st = STEPS[step];
+    const days = st.prop === 'days';
     return interaction.showModal(
-      new ModalBuilder().setCustomId(`setup:reward:${step}:${values[0]}`).setTitle(`Level for @${role?.name ?? 'role'}`.slice(0, 45)).addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('level').setLabel('Level needed (1-500)')
-          .setStyle(TextInputStyle.Short).setMaxLength(3).setPlaceholder('10')),
+      new ModalBuilder().setCustomId(`setup:reward:${step}:${values[0]}`).setTitle(`${days ? 'Streak days' : 'Level'} for @${role?.name ?? 'role'}`.slice(0, 45)).addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('value').setLabel(days ? `Days of streak needed (1-${st.max})` : `Level needed (1-${st.max})`)
+          .setStyle(TextInputStyle.Short).setMaxLength(String(st.max).length).setPlaceholder(days ? '7' : '10')),
       ),
     );
   }
 
   if (action === 'unreward') {
-    const { levelRewards = [] } = await getSettings(interaction.guildId);
-    await updateSettings(interaction.guildId, { levelRewards: levelRewards.filter((r) => r.roleId !== values[0]) });
+    const { key } = STEPS[step];
+    const current = (await getSettings(interaction.guildId))[key] ?? [];
+    await updateSettings(interaction.guildId, { [key]: current.filter((r) => r.roleId !== values[0]) });
     return interaction.update(await render(interaction.guild, step));
   }
 }
@@ -163,13 +171,14 @@ export async function handleModal(interaction) {
   }
 
   if (action === 'reward') {
-    const level = Number(interaction.fields.getTextInputValue('level').trim());
-    if (!Number.isInteger(level) || level < 1 || level > 500) {
-      return interaction.update(await render(interaction.guild, step, 'The level must be a whole number from 1 to 500.'));
+    const { key, prop, max } = STEPS[step];
+    const value = Number(interaction.fields.getTextInputValue('value').trim());
+    if (!Number.isInteger(value) || value < 1 || value > max) {
+      return interaction.update(await render(interaction.guild, step, `The ${prop === 'days' ? 'number of days' : 'level'} must be a whole number from 1 to ${max}.`));
     }
-    const { levelRewards = [] } = await getSettings(interaction.guildId);
-    const next = [...levelRewards.filter((r) => r.roleId !== roleId), { roleId, level }].sort((a, b) => a.level - b.level);
-    await updateSettings(interaction.guildId, { levelRewards: next });
+    const current = (await getSettings(interaction.guildId))[key] ?? [];
+    const next = [...current.filter((r) => r.roleId !== roleId), { roleId, [prop]: value }].sort((a, b) => a[prop] - b[prop]);
+    await updateSettings(interaction.guildId, { [key]: next });
     return interaction.update(await render(interaction.guild, step));
   }
 
@@ -216,7 +225,7 @@ function show(step, s) {
     case 'timezone': return tzLabel(v);
     case 'choice': return optionLabel(step, v);
     case 'words': return `${v.length} word${v.length === 1 ? '' : 's'} · ||${v.slice(0, 8).join(', ')}${v.length > 8 ? ', …' : ''}||`;
-    case 'rewards': return v.map((r) => `Level **${r.level}** → <@&${r.roleId}>`).join(', ');
+    case 'rewards': return v.map((r) => (step.prop === 'days' ? `**${r.days}** days → <@&${r.roleId}>` : `Level **${r.level}** → <@&${r.roleId}>`)).join(', ');
     default: return String(v);
   }
 }
@@ -273,16 +282,17 @@ export async function render(guild, step, error) {
       ),
     );
   } else if (st.kind === 'rewards') {
-    const rewards = s.levelRewards ?? [];
+    const rewards = s[st.key] ?? [];
+    const days = st.prop === 'days';
     picker = [
       new ActionRowBuilder().addComponents(
-        new RoleSelectMenuBuilder().setCustomId(`setup:rewardrole:${step}`).setPlaceholder('➕ Add: pick a role, then type its level…'),
+        new RoleSelectMenuBuilder().setCustomId(`setup:rewardrole:${step}`).setPlaceholder(`➕ Add: pick a role, then type its ${days ? 'days' : 'level'}…`),
       ),
       rewards.length
         ? new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder().setCustomId(`setup:unreward:${step}`).setPlaceholder('➖ Remove one…').addOptions(
             rewards.slice(0, 25).map((r) => ({
-              label: `Level ${r.level} → @${guild.roles.cache.get(r.roleId)?.name ?? 'deleted role'}`.slice(0, 100), value: r.roleId,
+              label: `${days ? `${r.days} days` : `Level ${r.level}`} → @${guild.roles.cache.get(r.roleId)?.name ?? 'deleted role'}`.slice(0, 100), value: r.roleId,
             })),
           ),
         )
@@ -331,7 +341,7 @@ export function checks(guild, s) {
   const missing = Object.entries(needed).filter(([p]) => !me.permissions.has(PermissionFlagsBits[p])).map(([, what]) => what);
   if (missing.length) out.push(`⚠️ The bot's role is missing permissions to **${missing.join(', ')}**.`);
 
-  const handedOut = [s.verifiedRole, s.unverifiedRole, ...(s.levelRewards ?? []).map((r) => r.roleId)].filter(Boolean);
+  const handedOut = [s.verifiedRole, s.unverifiedRole, ...(s.levelRewards ?? []).map((r) => r.roleId), ...(s.streakRewards ?? []).map((r) => r.roleId)].filter(Boolean);
   for (const id of new Set(handedOut)) {
     const role = guild.roles.cache.get(id);
     if (!role) out.push(`⚠️ A role you picked was deleted. Pick it again.`);

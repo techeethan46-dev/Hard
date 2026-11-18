@@ -1,14 +1,13 @@
 import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { grantRewards } from '../lib/activity.js';
 import { levelInfo, totalXpFor } from '../lib/levels.js';
-import { setStreakBadge } from '../lib/nickname.js';
 import { getSettings } from '../lib/settings.js';
 import { store } from '../lib/store.js';
 import { notice } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('xp')
-  .setDescription('Change someone\'s level or streak (admin)')
+  .setDescription('Change someone\'s level or XP (admin). Streaks have their own command: /streak-admin')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addSubcommand((s) => s.setName('set-level').setDescription('Set a member\'s level')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
@@ -16,7 +15,7 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName('give').setDescription('Give (or take with a negative number) XP')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
     .addIntegerOption((o) => o.setName('amount').setDescription('XP').setRequired(true).setMinValue(-1_000_000).setMaxValue(1_000_000)))
-  .addSubcommand((s) => s.setName('reset').setDescription('Reset a member\'s XP and streak')
+  .addSubcommand((s) => s.setName('reset').setDescription('Reset a member\'s XP to zero (their streak is not touched)')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true)));
 
 export async function execute(interaction) {
@@ -27,9 +26,8 @@ export async function execute(interaction) {
   const doc = (await store.stats.get(interaction.guildId, user.id)) ?? { xp: 0 };
 
   if (sub === 'reset') {
-    await store.stats.set(interaction.guildId, user.id, { xp: 0, streak: null });
-    await setStreakBadge(member, 0).catch(() => {});
-    return interaction.reply(notice('ok', `${user} is back to level 0 with no streak.`, { title: 'Reset' }));
+    await store.stats.set(interaction.guildId, user.id, { xp: 0 });
+    return interaction.reply(notice('ok', `${user} is back to level 0.\n-# Their streak wasn't touched. Use \`/streak-admin\` to change that.`, { title: 'XP reset' }));
   }
 
   const xp = sub === 'set-level'

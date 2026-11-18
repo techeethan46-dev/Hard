@@ -45,6 +45,8 @@ Every pick saves instantly. After the last step, a summary page shows everything
 | 📜 Ticket log channel | Transcripts of closed tickets |
 | 🎉 Level-up channel | Where level-up messages go (otherwise the channel they chatted in) |
 | 🎁 Level rewards | Pick a role and the level that unlocks it |
+| 🔥 Streak roles | Pick a role and the number of days of streak that unlocks it |
+| 🧷 When a streak ends | Take the streak roles away (default) or let people keep them |
 | 🕛 Streak timezone | When a "day" ends for chat streaks (default UTC) |
 | 🧾 Server log channel | Message deletes/edits, role and nickname changes, timeouts |
 | 📥 Join log channel | Everyone who joins |
@@ -73,7 +75,8 @@ Skip any step you don't need; that feature just stays off.
 | `/rank [member]` | Everyone | Level, XP progress, server position, streak and restores |
 | `/leaderboard` | Everyone | Top 10 by level or by streak (buttons to switch) |
 | `/streak` | Everyone | Your streak, restores left, and a Restore button when it broke |
-| `/xp set-level/give/reset` | Admins | Adjust someone's level, XP or streak |
+| `/xp set-level/give/reset` | Admins | Adjust someone's level or XP (`reset` only resets XP) |
+| `/streak-admin set/reset/restores` | Admins | Set or remove someone's streak, or refill their restores |
 | `/raidmode on/off/status` | Admins | Turn raid mode on or off by hand |
 | `/giveaway start/end/reroll/cancel/list` | Admins | Giveaways with requirements and bonus entries |
 | `/roles create` | Admins | Build a self-role panel (buttons or dropdown, many or only-one) and post it |
@@ -100,6 +103,11 @@ automatically.
 - Restoring costs **1 restore per missed day** and adds your old streak back on top of the new one.
 - Everyone gets **3 restores per calendar month**.
 - Days follow the timezone chosen in `/setup`.
+- **Changing your own nickname is fine:** the bot puts your 🔥 badge (and `[AFK]` tag) back right away.
+- **Streak roles:** set them in `/setup` (e.g. 7 days → @Week Warrior). The role is given the moment the streak reaches
+  the days, with a 🔥 announcement. By default the roles follow the current streak: they're taken away when it ends
+  and given back if it's restored. Choose **Let them keep the roles** in `/setup` to keep them once earned.
+- `/xp reset` only resets XP; use `/streak-admin` for streaks.
 - The bot can't rename the server owner or anyone whose role is above the bot's, so they won't get a badge.
 
 ## Giveaways

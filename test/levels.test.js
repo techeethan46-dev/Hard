@@ -241,5 +241,161 @@ test('/xp set-level and reset', async () => {
   r.options.getUser = i.options.getUser;
   await xp.execute(r);
   assert.equal((await store.stats.get('g1', 'u1')).xp, 0);
-  assert.equal(member.nickname, null);
+  assert.match(textOf(r.calls[0]), /XP reset/);
+  // the streak is a separate thing: /xp reset doesn't touch it
+  assert.equal((await store.stats.get('g1', 'u1')).streak.current, 3);
+  assert.equal(member.nickname, 'Superman [3🔥]');
+});
+
+// ---------------------------------------------------------------- nickname changes, streak roles, /streak-admin
+
+const activity = await import('../src/lib/activity.js');
+const adminCmd = await import('../src/commands/streakadmin.js');
+const today = () => S.dayKey(new Date(), 'UTC');
+for (const [id, position] of [['sr7', 1], ['sr30', 1], ['sr365', 99]]) guild.roles.cache.set(id, { id, position });
+member.roles.remove = async (r) => { [].concat(r).forEach((x) => roles.delete(x)); };
+const fakeMember = (id, nickname, extra = {}) => ({
+  id, nickname, displayName: nickname ?? id, guild, manageable: true, user: { globalName: id, username: id, bot: false },
+  setNickname: async (n) => { fakeMember.last = n; const m = fakeMemberMap[id]; m.nickname = n; m.displayName = n ?? id; },
+  ...extra,
+});
+const fakeMemberMap = {};
+const make = (id, nickname) => (fakeMemberMap[id] = fakeMember(id, nickname));
+
+test('changing your own nickname brings the 🔥 badge back immediately', async () => {
+  await store.stats.set('g1', 'nick1', { streak: { current: 5, best: 5, lastDay: today(), startDay: S.addDays(today(), -4) } });
+  const m = make('nick1', 'Clark'); // they just renamed themselves, so the badge is gone
+  await activity.restoreNickname({ partial: false, nickname: 'Superman [5🔥]' }, m);
+  assert.equal(m.nickname, 'Clark [5🔥]');
+
+  // setting it again changes nothing (so the bot's own change can't start a loop)
+  fakeMember.last = 'untouched';
+  await activity.restoreNickname({ partial: false, nickname: 'Clark' }, m);
+  assert.equal(fakeMember.last, 'untouched');
+
+  // clearing the nickname: back to their name with the badge
+  const m2 = make('nick1', null);
+  await activity.restoreNickname({ partial: false, nickname: 'Clark [5🔥]' }, m2);
+  assert.equal(m2.nickname, 'nick1 [5🔥]');
+
+  // yesterday still counts (the streak only ends after a whole missed day)...
+  await store.stats.set('g1', 'nick1', { streak: { current: 5, best: 5, lastDay: S.addDays(today(), -1) } });
+  const m3 = make('nick1', 'Bruce');
+  await activity.restoreNickname({ partial: false, nickname: 'x' }, m3);
+  assert.equal(m3.nickname, 'Bruce [5🔥]');
+
+  // ...but a broken streak gets no badge
+  await store.stats.set('g1', 'nick1', { streak: { current: 5, best: 5, lastDay: S.addDays(today(), -3) } });
+  const m4 = make('nick1', 'Dick');
+  await activity.restoreNickname({ partial: false, nickname: 'x' }, m4);
+  assert.equal(m4.nickname, 'Dick');
+
+  // people who can't be renamed and bots are left alone
+  await store.stats.set('g1', 'nick1', { streak: { current: 5, best: 5, lastDay: today() } });
+  const owner = make('nick1', 'Boss');
+  owner.manageable = false;
+  await activity.restoreNickname({ partial: false, nickname: 'x' }, owner);
+  assert.equal(owner.nickname, 'Boss');
+});
+
+test('the [AFK] tag survives a nickname change too', async () => {
+  const { setAfk } = { setAfk: (id) => store.stats.set('g1', id, { afk: { reason: 'tired', since: Date.now(), pings: [] } }) };
+  await setAfk('nick2');
+  await store.stats.set('g1', 'nick2', { streak: { current: 2, best: 2, lastDay: today() } });
+  const m = make('nick2', 'Selina');
+  await activity.restoreNickname({ partial: false, nickname: 'Catwoman [2🔥]' }, m);
+  assert.equal(m.nickname, '[AFK] Selina [2🔥]');
+});
+
+test('streak roles: given at the days, taken away when the streak drops (unless kept)', async () => {
+  await updateSettings('g1', { streakRewards: [{ roleId: 'sr7', days: 7 }, { roleId: 'sr30', days: 30 }, { roleId: 'sr365', days: 365 }], streakRolesKeep: null });
+  roles.clear();
+  const settings = await (await import('../src/lib/settings.js')).getSettings('g1');
+
+  assert.deepEqual(await activity.syncStreakRoles(member, settings, 6), []);
+  assert.deepEqual([...roles], []);
+  assert.deepEqual((await activity.syncStreakRoles(member, settings, 7)).map((r) => r.roleId), ['sr7']);
+  assert.deepEqual((await activity.syncStreakRoles(member, settings, 7)).map((r) => r.roleId), [], 'only announced once');
+  assert.deepEqual((await activity.syncStreakRoles(member, settings, 40)).map((r) => r.roleId), ['sr30']);
+  assert.deepEqual([...roles].sort(), ['sr30', 'sr7']);
+  assert.ok(!roles.has('sr365'), 'a role above the bot is never given');
+
+  await activity.syncStreakRoles(member, settings, 10); // dropped below 30
+  assert.deepEqual([...roles], ['sr7']);
+  await activity.syncStreakRoles(member, settings, 0);
+  assert.deepEqual([...roles], []);
+
+  // "let them keep the roles"
+  const keep = { ...settings, streakRolesKeep: 'keep' };
+  await activity.syncStreakRoles(member, keep, 30);
+  await activity.syncStreakRoles(member, keep, 0);
+  assert.deepEqual([...roles].sort(), ['sr30', 'sr7']);
+  roles.clear();
+});
+
+test('reaching the days in chat gives the role and announces it', async () => {
+  roles.clear();
+  await store.stats.set('g1', 'u1', { streak: { current: 6, best: 6, lastDay: S.addDays(today(), -1), startDay: S.addDays(today(), -6) } });
+  const before = sent.length;
+  await onMessage(msg());
+  assert.equal((await store.stats.get('g1', 'u1')).streak.current, 7);
+  assert.ok(roles.has('sr7'));
+  assert.match(member.nickname, /\[7🔥\]$/);
+  const card = sent.slice(before).find((m) => /7-day streak!/.test(textOf(m)));
+  assert.ok(card, 'milestone card sent');
+  assert.match(textOf(card), /unlocked <@&sr7>/);
+  json(card);
+});
+
+test('a broken streak loses the badge and the streak roles', async () => {
+  await store.stats.set('g1', 'u1', { streak: { current: 8, best: 8, lastDay: S.addDays(today(), -3), startDay: S.addDays(today(), -10) } });
+  roles.add('sr7');
+  await sweepStreaks({ guilds: { cache: new Map([['g1', guild]]) } });
+  assert.ok(!roles.has('sr7'));
+  assert.doesNotMatch(member.nickname ?? '', /🔥/);
+  assert.equal((await store.stats.get('g1', 'u1')).streak.lost, 8);
+});
+
+test('/streak shows the next streak role, and restoring gives the roles back', async () => {
+  const streak = await import('../src/commands/streak.js');
+  await store.stats.set('g1', 'u1', { streak: { current: 3, best: 8, lastDay: today(), startDay: S.addDays(today(), -2), lost: 0 } });
+  const i = ix();
+  await streak.execute(i);
+  assert.match(textOf(i.calls[0]), /\*\*7 days\*\* unlocks <@&sr7> · 4 to go/);
+});
+
+test('/streak-admin: set, reset and refill restores; XP is never touched', async () => {
+  roles.clear();
+  const xpBefore = (await store.stats.get('g1', 'u1')).xp;
+  const run = async (sub, extra = {}) => {
+    const i = ix({ sub, ...extra });
+    i.options.getUser = () => ({ id: 'u1', bot: false, toString: () => '<@u1>' });
+    await adminCmd.execute(i);
+    return textOf(i.calls[0]);
+  };
+
+  assert.match(await run('set', { days: 30 }), /Streak set[\s\S]*30-day\*\* streak/);
+  const doc = await store.stats.get('g1', 'u1');
+  assert.equal(doc.streak.current, 30);
+  assert.equal(doc.streak.lastDay, today());
+  assert.equal(doc.streak.best, 30);
+  assert.match(member.nickname, /\[30🔥\]$/);
+  assert.deepEqual([...roles].sort(), ['sr30', 'sr7']);
+  // setting it makes today count, so the next message continues it instead of restarting
+  assert.equal(S.recordChat(doc.streak, S.addDays(today(), 1)).streak.current, 31);
+
+  assert.match(await run('reset'), /Streak removed/);
+  assert.equal((await store.stats.get('g1', 'u1')).streak, null);
+  assert.doesNotMatch(member.nickname ?? '', /🔥/);
+  assert.deepEqual([...roles], []);
+
+  await store.stats.set('g1', 'u1', { streak: { current: 2, best: 2, lastDay: today(), restores: { month: today().slice(0, 7), used: 3 } } });
+  assert.match(await run('restores'), /3\/3\*\* restores/);
+  assert.equal(S.restoresLeft((await store.stats.get('g1', 'u1')).streak, today()), 3);
+  assert.equal((await store.stats.get('g1', 'u1')).xp, xpBefore);
+
+  const bot = ix({ sub: 'set', days: 5 });
+  bot.options.getUser = () => ({ id: 'b', bot: true });
+  await adminCmd.execute(bot);
+  assert.match(textOf(bot.calls[0]), /Bots don't have streaks/);
 });

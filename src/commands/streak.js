@@ -1,5 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
-import { todayFor } from '../lib/activity.js';
+import { syncStreakRoles, todayFor } from '../lib/activity.js';
 import { setStreakBadge } from '../lib/nickname.js';
 import { getSettings } from '../lib/settings.js';
 import { store } from '../lib/store.js';
@@ -17,6 +17,7 @@ export async function execute(interaction) {
   const s = normalize(doc?.streak);
   const q = restoreQuote(s, today);
   const chattedToday = s.lastDay === today;
+  const nextRole = (settings.streakRewards ?? []).filter((r) => r.days > s.current).sort((a, b) => a.days - b.days)[0];
 
   return interaction.reply(v2(card(s.current ? colors.warn : colors.brand,
     section([
@@ -29,6 +30,7 @@ export async function execute(interaction) {
     divider(),
     text(
       `🛟 **${restoresLeft(s, today)}/${RESTORES_PER_MONTH}** restores left this month`,
+      nextRole ? `🎁 **${nextRole.days} days** unlocks <@&${nextRole.roleId}> · ${nextRole.days - s.current} to go` : null,
       s.lost ? (q.possible
         ? `💔 Your **${s.lost}🔥** streak broke. Restoring costs **${q.cost}** and puts you at **${q.value}🔥**.`
         : `💔 Your **${s.lost}🔥** streak broke. Restoring needs **${q.cost}**, you have **${q.left}**.`) : null,
@@ -62,6 +64,7 @@ export async function handleButton(interaction) {
   const restored = applyRestore(s, today);
   await store.stats.set(interaction.guildId, interaction.user.id, { streak: restored });
   await setStreakBadge(interaction.member, restored.current).catch(() => {});
+  await syncStreakRoles(interaction.member, settings, restored.current);
 
   const left = restoresLeft(restored, today);
   const msg = v2(card(colors.ok,
