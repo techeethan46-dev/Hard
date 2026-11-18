@@ -136,3 +136,38 @@ test('streak timezone is picked from a list', async () => {
   assert.equal((await getSettings('g1')).streakTimezone, 'America/New_York');
   assert.match(textOf(await render(guild, step)), /US Eastern \(New York\)/);
 });
+
+test('streak roles: add with days, validate, remove; and the keep/remove choice', async () => {
+  const step = STEPS.findIndex((x) => x.key === 'streakRewards');
+  const pick = i(`setup:rewardrole:${step}`, { values: ['staff'] });
+  await setup.handleSelect(pick);
+  assert.equal(pick.calls[0].kind, 'showModal');
+  assert.match(JSON.stringify(pick.calls[0].p.toJSON()), /Days of streak needed \(1-3650\)/);
+
+  const val = (v) => ({ fields: { getTextInputValue: () => v } });
+  const bad = i(`setup:reward:${step}:staff`, val('abc'));
+  await setup.handleModal(bad);
+  assert.match(desc(bad.calls[0]), /number of days must be a whole number from 1 to 3650/);
+  const tooBig = i(`setup:reward:${step}:staff`, val('3651'));
+  await setup.handleModal(tooBig);
+  assert.match(desc(tooBig.calls[0]), /from 1 to 3650/);
+
+  await setup.handleModal(i(`setup:reward:${step}:staff`, val('30')));
+  await setup.handleModal(i(`setup:reward:${step}:verified`, val('7')));
+  assert.deepEqual((await getSettings('g1')).streakRewards, [{ roleId: 'verified', days: 7 }, { roleId: 'staff', days: 30 }]);
+  const shown = await render(guild, step);
+  json(shown);
+  assert.match(textOf(shown), /\*\*7\*\* days → <@&verified>, \*\*30\*\* days → <@&staff>/);
+  assert.match(JSON.stringify(json(shown)), /7 days → @verified/);
+
+  await setup.handleSelect(i(`setup:unreward:${step}`, { values: ['verified'] }));
+  assert.deepEqual((await getSettings('g1')).streakRewards, [{ roleId: 'staff', days: 30 }]);
+  // level rewards are separate and unaffected
+  assert.notDeepEqual((await getSettings('g1')).levelRewards, (await getSettings('g1')).streakRewards);
+
+  const keep = STEPS.findIndex((x) => x.key === 'streakRolesKeep');
+  assert.match(textOf(await render(guild, keep)), /using the default: Take the streak roles away/);
+  await setup.handleSelect(i(`setup:set:${keep}`, { values: ['keep'] }));
+  assert.equal((await getSettings('g1')).streakRolesKeep, 'keep');
+  assert.match(textOf(await render(guild, keep)), /✅ Let them keep the roles/);
+});
