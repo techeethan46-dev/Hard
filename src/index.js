@@ -1,7 +1,6 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { readdirSync } from 'node:fs';
 import { config, requireConfig } from './config.js';
-import { reportError } from './lib/errors.js';
 import { closeStore, initStore } from './lib/store.js';
 import { startWebServer } from './web/server.js';
 import { loadCommands } from './lib/loader.js';
@@ -11,7 +10,7 @@ requireConfig('token');
 const client = new Client({
   // GuildMembers is a privileged intent: enable "Server Members Intent" in the Developer Portal (Bot tab).
   // GuildMembers and MessageContent are "privileged": turn both on in the Developer Portal (Bot tab).
-  // MessageContent is needed for AutoMod and message logs; GuildModeration for ban logs.
+  // MessageContent is needed for message logs and r!afk; GuildModeration for ban logs.
   intents: [
     GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildMessageReactions,
@@ -30,10 +29,7 @@ for (const file of readdirSync(eventsDir).filter((f) => f.endsWith('.js'))) {
   event.once ? client.once(event.name, handler) : client.on(event.name, handler);
 }
 
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled rejection:', err);
-  reportError(client, { where: 'Background task', error: err });
-});
+process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
 // Always on: Render needs an open port, and it serves the health check + Roblox sign-in callback.
 const server = startWebServer(client);
 await client.login(config.token);
