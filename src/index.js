@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { readdirSync } from 'node:fs';
 import { config, requireConfig } from './config.js';
+import { reportError } from './lib/errors.js';
 import { closeStore, initStore } from './lib/store.js';
 import { startWebServer } from './web/server.js';
 import { loadCommands } from './lib/loader.js';
@@ -29,7 +30,10 @@ for (const file of readdirSync(eventsDir).filter((f) => f.endsWith('.js'))) {
   event.once ? client.once(event.name, handler) : client.on(event.name, handler);
 }
 
-process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection:', err);
+  reportError(client, { where: 'Background task', error: err });
+});
 // Always on: Render needs an open port, and it serves the health check + Roblox sign-in callback.
 const server = startWebServer(client);
 await client.login(config.token);
