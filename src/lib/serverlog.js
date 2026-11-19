@@ -1,7 +1,6 @@
 // Server logs: message deletes/edits, joins/leaves, nickname/role/timeout changes, bans.
 // Everything goes to the "Server log channel" chosen in /setup.
 import { ActionRowBuilder, AttachmentBuilder, AuditLogEvent, ButtonBuilder, ButtonStyle, FileBuilder } from 'discord.js';
-import { deletedByAutomod } from './automod.js';
 import { stripAfk, stripBadge } from './nickname.js';
 import { getSettings } from './settings.js';
 import { card, colors, divider, footnote, section, text, thumb, v2, wasLoggedByCommand } from './ui.js';
@@ -49,7 +48,7 @@ const isLogChannel = async (message) => (await getSettings(message.guildId)).ser
 // ---------------------------------------------------------------- messages
 
 export async function messageDeleted(message) {
-  if (!message.guild || message.author?.bot || deletedByAutomod.has(message.id)) return;
+  if (!message.guild || message.author?.bot) return;
   if (await isLogChannel(message)) return;
   const files = [...(message.attachments?.values() ?? [])].map((a) => `📎 ${a.name}`);
   await send(message.guild, entry(colors.bad, {
@@ -84,7 +83,6 @@ export async function messageEdited(before, after) {
 
 export async function messagesBulkDeleted(messages, channel) {
   if (!channel.guild) return;
-  if ([...messages.keys()].every((id) => deletedByAutomod.has(id))) return;
   const list = [...messages.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
   const lines = list.map((m) => `[${m.createdAt?.toISOString().replace('T', ' ').slice(0, 19) ?? '?'}] ${m.author?.tag ?? 'unknown'}: ${m.content ?? ''}`);
   const name = `deleted-${channel.name}.txt`;

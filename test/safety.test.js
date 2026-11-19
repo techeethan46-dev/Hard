@@ -9,58 +9,9 @@ mock.timers.enable({ apis: ['setTimeout'] }); // warning cleanups etc. shouldn't
 const { initStore } = await import('../src/lib/store.js');
 await initStore({ jsonPath: null });
 const { updateSettings, getSettings } = await import('../src/lib/settings.js');
-await updateSettings('g1', { modLogChannel: 'modlog', serverLogChannel: 'serverlog', joinLogChannel: 'joinlog', leaveLogChannel: 'leavelog', bannedWords: ['badword'], automodExemptRoles: ['trusted'] });
-const automod = await import('../src/lib/automod.js');
-const { detect, SpamTracker, isScamDomain } = automod;
+await updateSettings('g1', { modLogChannel: 'modlog', serverLogChannel: 'serverlog', joinLogChannel: 'joinlog', leaveLogChannel: 'leavelog' });
 
-// ---------------------------------------------------------------- rules
-
-test('detects invites, scams and look-alike domains, but not real sites', () => {
-  const rule = (c, o) => detect(c, o)?.rule ?? null;
-  assert.equal(rule('join discord.gg/abc'), 'invites');
-  assert.equal(rule('https://discord.com/invite/xyz'), 'invites');
-  for (const d of ['dlscord.gift', 'roblox.com.ge', 'rob1ox.com', 'free-robux-roblox.xyz', 'steamcommunlty.com']) assert.ok(isScamDomain(d), d);
-  for (const d of ['roblox.com', 'www.roblox.com', 'roblox.fandom.com', 'robloxden.com', 'discord.gift', 'discord.js.org', 'team.com']) {
-    assert.ok(!isScamDomain(d.replace(/^www\./, '')), d);
-  }
-  assert.equal(rule('free nitro here https://example.com'), 'scams');
-  assert.equal(rule('free nitro would be nice'), null); // no link, just chatting
-  assert.equal(rule('check https://www.roblox.com/games/1'), null);
-});
-
-test('blocked words catch disguises but not longer words', () => {
-  const o = { words: ['badword', 'two words'] };
-  assert.equal(detect('you b4dw0rd', o)?.rule, 'words');
-  assert.equal(detect('BADWORD!', o)?.rule, 'words');
-  assert.equal(detect('what the b@dw0rd', o)?.rule, 'words');
-  assert.equal(detect('sh!t', { words: ['shit'] })?.rule, 'words');
-  assert.equal(detect('badwordy is fine', o), null);
-  assert.equal(detect('these are two   words', o), null); // spacing differs: only exact phrases
-  assert.equal(detect('these are two words', o)?.rule, 'words');
-});
-
-test('mentions, links and caps', () => {
-  assert.equal(detect('hi', { mentions: 5 })?.rule, 'mentions');
-  assert.equal(detect('hi', { mentions: 4 }), null);
-  assert.equal(detect('see https://example.com', { filters: ['links'] })?.rule, 'links');
-  assert.equal(detect('see https://example.com'), null); // links filter is off by default
-  assert.equal(detect('THIS IS SO COOL WOW AMAZING', { filters: ['caps'] })?.rule, 'caps');
-  assert.equal(detect('OK LOL', { filters: ['caps'] }), null);
-});
-
-test('spam: too fast, or the same message 3 times', () => {
-  const t = new SpamTracker();
-  let hit;
-  for (let i = 0; i < 6; i++) hit = t.add('k', { id: `m${i}`, text: `msg ${i}`, at: 1000 + i * 500 });
-  assert.equal(hit.reason, 'Sending messages too fast');
-  assert.equal(hit.ids.length, 6);
-  const r = new SpamTracker();
-  r.add('k', { id: 'a', text: 'buy my stuff', at: 0 });
-  assert.equal(r.add('k', { id: 'b', text: 'BUY MY STUFF', at: 8000 }), null);
-  assert.equal(r.add('k', { id: 'c', text: 'buy my stuff', at: 16000 }).reason, 'Repeating the same message');
-});
-
-// ---------------------------------------------------------------- acting on messages
+// ---------------------------------------------------------------- fakes shared by the raid and log tests
 
 const ALL = new PermissionsBitField(PermissionsBitField.All);
 const logs = { modlog: [], serverlog: [], joinlog: [], leavelog: [] };
@@ -92,69 +43,6 @@ const message = (content, m, extra = {}) => {
   };
   return msg;
 };
-
-test('AutoMod deletes, warns, logs, and times out on the 3rd hit', async () => {
-  const bob = member('bob');
-  const m1 = message('come to discord.gg/other', bob);
-  assert.equal(await automod.moderate(m1), true);
-  assert.ok(m1.deleted);
-  assert.match(textOf(channel.sent.at(-1)), /<@bob>, discord invite links aren't allowed/);
-  const log = logs.modlog.at(-1);
-  json(log);
-  assert.match(textOf(log), /AutoMod · Discord invites/);
-  assert.match(textOf(log), /discord\.gg\/other/);
-  assert.ok(automod.deletedByAutomod.has(m1.id));
-
-  await automod.moderate(message('b4dw0rd', bob));
-  assert.equal(bob.timedOut, 0);
-  await automod.moderate(message('discord.gg/again', bob));
-  assert.equal(bob.timedOut, 10 * 60_000);
-  assert.match(textOf(logs.modlog.at(-1)), /timed out for 10 minutes/);
-});
-
-test('staff and exempt roles are never filtered; normal messages pass', async () => {
-  assert.equal(await automod.moderate(message('discord.gg/x', member('mod', { staff: true }))), false);
-  assert.equal(await automod.moderate(message('discord.gg/x', member('vip', { roles: ['trusted'] }))), false);
-  assert.equal(await automod.moderate(message('hello everyone!', member('amy'))), false);
-});
-
-test('spam burst is bulk-deleted and timed out', async () => {
-  const sam = member('sam');
-  for (let i = 0; i < 6; i++) await automod.moderate(message(`spam ${i}`, sam));
-  assert.equal(channel.bulk.at(-1).length, 6);
-  assert.equal(sam.timedOut, 5 * 60_000);
-});
-
-test('turning filters off in setup turns AutoMod off', async () => {
-  await updateSettings('g1', { automodFilters: [] });
-  assert.equal(await automod.moderate(message('discord.gg/x', member('zed'))), false);
-  await updateSettings('g1', { automodFilters: null });
-});
-
-test('trial mode: AutoMod only reports, and changes nothing', async () => {
-  await updateSettings('g1', { automodMode: 'log' });
-  const al = member('alice');
-  const logsBefore = logs.modlog.length;
-  const sentBefore = channel.sent.length;
-
-  for (const content of ['join discord.gg/trial', 'b4dw0rd', 'discord.gg/again', 'discord.gg/third']) {
-    const m = message(content, al);
-    assert.equal(await automod.moderate(m), false, 'returns false: the message is left alone');
-    assert.equal(m.deleted, false);
-  }
-  assert.equal(al.timedOut, 0, 'no timeout, even after several hits');
-  assert.equal(channel.sent.length, sentBefore, 'no public warning');
-  assert.equal(logs.modlog.length, logsBefore + 4, 'but every hit is reported');
-  assert.match(textOf(logs.modlog.at(-1)), /AutoMod · Discord invites/);
-  assert.match(textOf(logs.modlog.at(-1)), /🧪 Trial mode: nothing was deleted/);
-  json(logs.modlog.at(-1));
-
-  // switching to the normal mode makes it act again
-  await updateSettings('g1', { automodMode: null });
-  const real = message('discord.gg/real', member('alice2'));
-  assert.equal(await automod.moderate(real), true);
-  assert.equal(real.deleted, true);
-});
 
 // ---------------------------------------------------------------- raid protection
 
@@ -223,12 +111,6 @@ test('message delete / edit / bulk logs', async () => {
   assert.match(textOf(del), /Message deleted/);
   assert.match(textOf(del), /> oops secret/);
   assert.match(textOf(del), /📎 pic\.png/);
-
-  // AutoMod's own deletions aren't logged twice
-  const auto = message('x', amy);
-  automod.deletedByAutomod.add(auto.id);
-  await slog.messageDeleted(auto);
-  assert.equal(logs.serverlog.length, before + 1);
 
   await slog.messageEdited({ content: 'helo' }, { ...message('hello', amy), url: 'https://discord.com/channels/1/2/3' });
   const edit = logs.serverlog.at(-1);
@@ -461,18 +343,6 @@ test('setup: Safety steps', async () => {
     const calls = [];
     return { calls, customId, guild: g, guildId: 'g1', memberPermissions: ALL, update: async (p) => calls.push(p), showModal: async (p) => calls.push(p), ...extra };
   };
-
-  const filters = await setup.render(g, step('automodFilters'));
-  json(filters);
-  assert.match(textOf(filters), /using the default: Spam & flooding, Discord invites/);
-  await setup.handleSelect(ix(`setup:set:${step('automodFilters')}`, { values: ['spam', 'caps'] }));
-  assert.deepEqual((await getSettings('g1')).automodFilters, ['spam', 'caps']);
-  await setup.handleSelect(ix(`setup:set:${step('automodFilters')}`, { values: [] }));
-  assert.match(textOf(await setup.render(g, step('automodFilters'))), /All off/);
-
-  await setup.handleModal(ix(`setup:wordsave:${step('bannedWords')}`, { fields: { getTextInputValue: () => 'Foo, bar\nfoo, , baz' } }));
-  assert.deepEqual((await getSettings('g1')).bannedWords, ['foo', 'bar', 'baz']);
-  assert.match(textOf(await setup.render(g, step('bannedWords'))), /3 words · \|\|foo, bar, baz\|\|/);
 
   await setup.handleSelect(ix(`setup:set:${step('raidProtection')}`, { values: ['strict'] }));
   assert.match(textOf(await setup.render(g, step('raidProtection'))), /✅ Strict/);

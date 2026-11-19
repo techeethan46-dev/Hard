@@ -6,7 +6,6 @@ import { gameUrl, getGame, getUniverseId } from '../lib/roblox.js';
 import { getSettings, updateSettings } from '../lib/settings.js';
 import { card, colors, divider, footnote, notice, progress, section, text, thumb, v2 } from '../lib/ui.js';
 import { ticketPanel, verifyPanel } from './panel.js';
-import { DEFAULT_FILTERS, FILTERS } from '../lib/automod.js';
 import { AGE_OPTIONS, RAID_LEVELS } from '../lib/raid.js';
 
 // Step-by-step setup inside Discord. Every pick saves instantly and moves on to the next step.
@@ -26,7 +25,7 @@ export const STEPS = [
   { key: 'welcomeChannel', kind: 'channel', section: 'Channels', emoji: '👋', title: 'Welcome channel',
     desc: 'New members are greeted here and told to verify. Write your own greeting with `/message welcome`. (Skip this if another bot already welcomes people, or they\'ll be welcomed twice.)' },
   { key: 'modLogChannel', kind: 'channel', section: 'Channels', emoji: '🛡️', title: 'Mod log channel',
-    desc: 'Every warn, kick, ban and unban is logged here, even ones done from Discord itself, plus AutoMod and raid alerts. Make it staff-only.' },
+    desc: 'Every warn, kick, ban and unban is logged here, even ones done from Discord itself, plus raid alerts. Make it staff-only.' },
   { key: 'suggestionsChannel', kind: 'channel', section: 'Channels', emoji: '💡', title: 'Suggestions channel',
     desc: '`/suggest` posts ideas here with 👍/👎 votes.' },
   { key: 'ticketCategory', kind: 'category', section: 'Tickets', emoji: '🎫', title: 'Ticket category',
@@ -46,21 +45,10 @@ export const STEPS = [
     desc: 'Chat streaks count calendar days. Pick where most of your members live, so a "day" ends at their midnight.' },
   { key: 'serverLogChannel', kind: 'channel', section: 'Safety', emoji: '🧾', title: 'Server log channel',
     desc: 'Deleted and edited messages, role and nickname changes, and timeouts are logged here. Make it staff-only.' },
-  { key: 'errorLogChannel', kind: 'channel', section: 'Safety', emoji: '⚠️', title: 'Error alert channel',
-    desc: 'If something breaks, the bot posts a short note here, so you don\'t have to read Render\'s logs. Make it staff-only.' },
   { key: 'joinLogChannel', kind: 'channel', section: 'Safety', emoji: '📥', title: 'Join log channel',
     desc: 'Everyone who joins is logged here, with how old their account is. If you skip this, joins go to the server log channel.' },
   { key: 'leaveLogChannel', kind: 'channel', section: 'Safety', emoji: '📤', title: 'Leave log channel',
     desc: 'Everyone who leaves is logged here. If you skip this, leaves go to the server log channel.' },
-  { key: 'automodFilters', kind: 'multi', section: 'Safety', emoji: '🤖', title: 'AutoMod filters', options: FILTERS, fallback: DEFAULT_FILTERS,
-    desc: 'Pick what AutoMod removes. Staff (anyone who can manage messages) are never filtered. Untick everything to turn AutoMod off.' },
-  { key: 'automodMode', kind: 'choice', section: 'Safety', emoji: '🧪', title: 'AutoMod mode', fallback: 'enforce',
-    options: [['enforce', 'Delete and punish', 'Normal: rule-breakers are deleted and timed out'], ['log', 'Trial: only log it', 'Nothing is deleted; hits are only reported in the mod log']],
-    desc: 'Try **Trial** for the first few days: AutoMod only reports what it would have deleted, so you can check it isn\'t catching innocent messages, then switch to **Delete and punish**.' },
-  { key: 'bannedWords', kind: 'words', section: 'Safety', emoji: '🤬', title: 'Blocked words',
-    desc: 'Words AutoMod deletes (needs the **Blocked words** filter). It also catches simple disguises like b4dw0rd.' },
-  { key: 'automodExemptRoles', kind: 'roles', section: 'Safety', emoji: '🛡️', title: 'AutoMod exempt roles',
-    desc: 'Optional. Roles AutoMod ignores, like trusted members or content creators. Staff are already exempt.' },
   { key: 'raidProtection', kind: 'choice', section: 'Safety', emoji: '🚨', title: 'Raid protection', options: RAID_LEVELS, fallback: 'normal',
     desc: 'When lots of people join at once, raid mode kicks brand-new accounts (under 30 days) for a few minutes and alerts staff.' },
   { key: 'minAccountAge', kind: 'choice', section: 'Safety', emoji: '👶', title: 'Minimum account age', options: AGE_OPTIONS, fallback: '0',
@@ -109,14 +97,6 @@ export async function handleButton(interaction) {
     return interaction.update(await render(interaction.guild, step));
   }
   if (action === 'ask') return interaction.showModal(linkModal(step));
-  if (action === 'words') {
-    const { bannedWords = [] } = await getSettings(interaction.guildId);
-    return interaction.showModal(new ModalBuilder().setCustomId(`setup:wordsave:${step}`).setTitle('Blocked words').addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('words').setLabel('Words or phrases, separated by commas')
-        .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(3000).setValue(bannedWords.join(', '))
-        .setPlaceholder('word one, word two, a phrase')),
-    ));
-  }
   if (action === 'finish') return interaction.update(finished(await getSettings(interaction.guildId)));
   if (action === 'post') {
     // From the Finish screen: post a panel into the channel /setup was run in.
@@ -140,7 +120,7 @@ export async function handleSelect(interaction) {
 
   if (action === 'set') {
     const s = STEPS[step];
-    await updateSettings(interaction.guildId, { [s.key]: s.kind === 'roles' || s.kind === 'multi' ? values : values[0] });
+    await updateSettings(interaction.guildId, { [s.key]: s.kind === 'roles' ? values : values[0] });
     return interaction.update(await render(interaction.guild, step + 1));
   }
 
@@ -168,12 +148,6 @@ export async function handleModal(interaction) {
   if (!allowed(interaction)) return denied(interaction);
   const [, action, stepStr, roleId] = interaction.customId.split(':');
   const step = Number(stepStr);
-
-  if (action === 'wordsave') {
-    const words = [...new Set(interaction.fields.getTextInputValue('words').split(/[,\n]/).map((w) => w.trim().toLowerCase()).filter(Boolean))].slice(0, 300);
-    await updateSettings(interaction.guildId, { bannedWords: words.length ? words : null });
-    return interaction.update(await render(interaction.guild, step));
-  }
 
   if (action === 'reward') {
     const { key, prop, max } = STEPS[step];
@@ -219,7 +193,6 @@ function linkModal(step) {
 /** How a saved value looks, or null if not set. */
 function show(step, s) {
   const v = s[step.key];
-  if (step.kind === 'multi' && Array.isArray(v)) return v.length ? v.map((id) => optionLabel(step, id)).join(', ') : 'All off';
   if (v === undefined || v === null || (Array.isArray(v) && !v.length)) return null;
   switch (step.kind) {
     case 'role': return `<@&${v}>`;
@@ -229,7 +202,6 @@ function show(step, s) {
     case 'game': return `[${s.gameName ?? v}](${gameUrl(v)})`;
     case 'timezone': return tzLabel(v);
     case 'choice': return optionLabel(step, v);
-    case 'words': return `${v.length} word${v.length === 1 ? '' : 's'} · ||${v.slice(0, 8).join(', ')}${v.length > 8 ? ', …' : ''}||`;
     case 'rewards': return v.map((r) => (step.prop === 'days' ? `**${r.days}** days → <@&${r.roleId}>` : `Level **${r.level}** → <@&${r.roleId}>`)).join(', ');
     default: return String(v);
   }
@@ -266,20 +238,13 @@ export async function render(guild, step, error) {
       .setPlaceholder(`Select the ${st.title.toLowerCase()}…`);
     if (s[st.key] && guild.channels.cache.has(s[st.key])) menu.setDefaultChannels(s[st.key]);
     picker = new ActionRowBuilder().addComponents(menu);
-  } else if (st.kind === 'multi' || st.kind === 'choice') {
+  } else if (st.kind === 'choice') {
     const selected = [].concat(s[st.key] ?? st.fallback);
-    const menu = new StringSelectMenuBuilder().setCustomId(`setup:set:${step}`)
-      .setPlaceholder(st.kind === 'multi' ? 'Tick what you want on…' : 'Choose one…')
+    picker = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`setup:set:${step}`)
+      .setPlaceholder('Choose one…')
       .addOptions(st.options.map(([id, label, description]) => ({
         label, value: id, default: selected.includes(id), ...(description ? { description: description.slice(0, 100) } : {}),
-      })));
-    if (st.kind === 'multi') menu.setMinValues(0).setMaxValues(st.options.length);
-    picker = new ActionRowBuilder().addComponents(menu);
-  } else if (st.kind === 'words') {
-    picker = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`setup:words:${step}`).setStyle(ButtonStyle.Success).setEmoji('✏️')
-        .setLabel(s.bannedWords?.length ? 'Edit the list' : 'Add words'),
-    );
+      }))));
   } else if (st.kind === 'timezone') {
     picker = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder().setCustomId(`setup:set:${step}`).setPlaceholder('Select a timezone…').addOptions(
@@ -324,8 +289,6 @@ export async function render(guild, step, error) {
     picker,
     navRow(step, { canClear: Boolean(current) }),
     footnote(st.kind === 'game' ? 'We check the link with Roblox before saving'
-      : st.kind === 'multi' ? 'Tick or untick, then click outside the menu to save'
-      : st.kind === 'words' ? 'Only staff can see this list'
       : st.kind === 'rewards' ? 'Add as many as you like, then press Next'
         : 'Pick below · it saves instantly and moves to the next step'),
   ));

@@ -51,11 +51,6 @@ Every pick saves instantly. After the last step, a summary page shows everything
 | 🧾 Server log channel | Message deletes/edits, role and nickname changes, timeouts |
 | 📥 Join log channel | Everyone who joins |
 | 📤 Leave log channel | Everyone who leaves |
-| 🧪 AutoMod mode | **Trial** (only log what it would delete) or **Delete and punish** (default) |
-| ⚠️ Error alert channel | Where the bot posts a note when something breaks |
-| 🤖 AutoMod filters | Which rules are on (spam, invites, scams, mass mentions, blocked words, links, caps) |
-| 🤬 Blocked words | Your list of words AutoMod removes |
-| 🛡️ AutoMod exempt roles | Roles AutoMod ignores (staff are always exempt) |
 | 🚨 Raid protection | Off / Normal / Strict |
 | 👶 Minimum account age | Kick accounts younger than this when they join |
 
@@ -174,19 +169,7 @@ quiet (at most every 15 seconds in a busy channel) and deletes the old copy, so 
 you or replies to you gets "💤 Superman is AFK: Too tired · 2 hours ago" (once a minute per channel). Send any
 message to come back: you get a welcome-back card listing who pinged you, with jump links.
 
-## AutoMod, raid protection and logs
-
-**AutoMod** deletes rule-breaking messages, shows the member a short warning that disappears, and logs it to the
-mod log. Spam gets an instant 5-minute timeout; for other rules, the 3rd hit within 10 minutes means a 10-minute
-timeout. Anyone who can manage messages is never filtered. Filters:
-- **Spam**: 6+ messages in 6 seconds, or the same message 3 times in 30 seconds (the whole burst is removed)
-- **Discord invites**, **scam links** (fake Nitro/Robux bait and look-alike Discord/Roblox/Steam sites like
-  `dlscord.gift` or `roblox.com.ge`), **mass mentions** (5+), **blocked words** (catches `b4dw0rd`-style tricks)
-- Off by default: **all links**, **excessive caps**
-
-**Trial mode:** set **AutoMod mode** to *Trial* in `/setup` for the first days. AutoMod then only reports what it *would*
-have deleted in the mod log ("🧪 Trial mode: nothing was deleted") and changes nothing, so you can check it isn't catching
-innocent messages. Switch to *Delete and punish* when you're happy.
+## Raid protection and logs
 
 **Raid protection**: if 10 people (5 on Strict) join within 30 seconds, raid mode turns on. Accounts younger
 than 30 days are kicked with a polite DM, staff get an alert with an **End raid mode** button, and it switches
@@ -195,7 +178,7 @@ kicks very new accounts at any time.
 
 **Logs** are split across channels (set them in `/setup`; one that isn't set falls back to the server log):
 - **Mod log:** kicks, bans and unbans, with who did it and why. This includes ones done from Discord itself, not just
-  `/kick` and `/ban` (those are never posted twice). AutoMod hits, raid alerts, warnings and timeouts from commands go here too.
+  `/kick` and `/ban` (those are never posted twice). Raid alerts, warnings and timeouts from commands go here too.
 - **Join log:** everyone who joins (flags accounts under 7 days old). Bots show as *Bot added*.
 - **Leave log:** everyone who leaves, with their roles. Bots show as *Bot removed*.
 - **Server log:** deleted messages (with text and file names), edits (before/after with a jump button), bulk deletes
@@ -226,12 +209,8 @@ the log channel and the member's DMs, then deletes the channel. One open ticket 
 The categories and their questions are in `config.json` (`ticketTypes`): General Support, Report a Player,
 Bug Report, Purchase Issue. Edit and push to change them.
 
-## When something breaks
+## Startup
 
-- **Error alerts:** pick an **Error alert channel** in `/setup`. If a command or background task fails, the bot posts a short
-  card there (what was running, the error, a few lines of where). Secrets like the token and database link are removed first,
-  the same error is only posted once per 10 minutes, and never more than 5 alerts a minute. The member who hit the problem
-  just sees a friendly "Something went wrong".
 - **Startup never depends on Discord's command registry:** if registering the slash commands fails (a rate limit or outage),
   the bot prints a warning and starts anyway, using the commands Discord already has.
 
