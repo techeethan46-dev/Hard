@@ -1,4 +1,5 @@
 import { Events } from 'discord.js';
+import { reportError } from '../lib/errors.js';
 import { notice } from '../lib/ui.js';
 
 export const name = Events.InteractionCreate;
@@ -22,6 +23,10 @@ export async function execute(interaction, commands) {
     else await command.execute(interaction);
   } catch (err) {
     console.error(`Error in ${interaction.commandName ?? interaction.customId}:`, err);
+    reportError(interaction.client, {
+      where: interaction.commandName ? `/${interaction.commandName}` : `a button or menu (${String(interaction.customId).split(':').slice(0, 2).join(':')})`,
+      error: err, guildId: interaction.guildId, user: interaction.user?.username,
+    });
     const payload = notice('bad', 'Please try again in a moment. If it keeps happening, tell the staff team.', { title: 'Something went wrong' });
     const send = interaction.deferred || interaction.replied ? interaction.followUp(payload) : interaction.reply(payload);
     await send.catch(() => {});

@@ -170,6 +170,12 @@ export async function moderate(message, { edited = false } = {}) {
   }
   if (!hit) return false;
 
+  // Trial mode: only report what AutoMod would have done, and change nothing.
+  if (settings.automodMode === 'log') {
+    await logHit(message, settings, hit, '🧪 Trial mode: nothing was deleted');
+    return false;
+  }
+
   // Remove the message (and the rest of a spam burst).
   for (const id of [message.id, ...spamIds]) deletedByAutomod.add(id);
   if (deletedByAutomod.size > 5000) deletedByAutomod.clear();

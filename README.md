@@ -51,6 +51,8 @@ Every pick saves instantly. After the last step, a summary page shows everything
 | 🧾 Server log channel | Message deletes/edits, role and nickname changes, timeouts |
 | 📥 Join log channel | Everyone who joins |
 | 📤 Leave log channel | Everyone who leaves |
+| 🧪 AutoMod mode | **Trial** (only log what it would delete) or **Delete and punish** (default) |
+| ⚠️ Error alert channel | Where the bot posts a note when something breaks |
 | 🤖 AutoMod filters | Which rules are on (spam, invites, scams, mass mentions, blocked words, links, caps) |
 | 🤬 Blocked words | Your list of words AutoMod removes |
 | 🛡️ AutoMod exempt roles | Roles AutoMod ignores (staff are always exempt) |
@@ -182,6 +184,10 @@ timeout. Anyone who can manage messages is never filtered. Filters:
   `dlscord.gift` or `roblox.com.ge`), **mass mentions** (5+), **blocked words** (catches `b4dw0rd`-style tricks)
 - Off by default: **all links**, **excessive caps**
 
+**Trial mode:** set **AutoMod mode** to *Trial* in `/setup` for the first days. AutoMod then only reports what it *would*
+have deleted in the mod log ("🧪 Trial mode: nothing was deleted") and changes nothing, so you can check it isn't catching
+innocent messages. Switch to *Delete and punish* when you're happy.
+
 **Raid protection**: if 10 people (5 on Strict) join within 30 seconds, raid mode turns on. Accounts younger
 than 30 days are kicked with a polite DM, staff get an alert with an **End raid mode** button, and it switches
 off by itself after 10 quiet minutes. `/raidmode` turns it on or off by hand. Separately, **Minimum account age**
@@ -219,6 +225,15 @@ the log channel and the member's DMs, then deletes the channel. One open ticket 
 
 The categories and their questions are in `config.json` (`ticketTypes`): General Support, Report a Player,
 Bug Report, Purchase Issue. Edit and push to change them.
+
+## When something breaks
+
+- **Error alerts:** pick an **Error alert channel** in `/setup`. If a command or background task fails, the bot posts a short
+  card there (what was running, the error, a few lines of where). Secrets like the token and database link are removed first,
+  the same error is only posted once per 10 minutes, and never more than 5 alerts a minute. The member who hit the problem
+  just sees a friendly "Something went wrong".
+- **Startup never depends on Discord's command registry:** if registering the slash commands fails (a rate limit or outage),
+  the bot prints a warning and starts anyway, using the commands Discord already has.
 
 ## Running locally
 

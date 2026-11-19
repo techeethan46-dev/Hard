@@ -131,6 +131,31 @@ test('turning filters off in setup turns AutoMod off', async () => {
   await updateSettings('g1', { automodFilters: null });
 });
 
+test('trial mode: AutoMod only reports, and changes nothing', async () => {
+  await updateSettings('g1', { automodMode: 'log' });
+  const al = member('alice');
+  const logsBefore = logs.modlog.length;
+  const sentBefore = channel.sent.length;
+
+  for (const content of ['join discord.gg/trial', 'b4dw0rd', 'discord.gg/again', 'discord.gg/third']) {
+    const m = message(content, al);
+    assert.equal(await automod.moderate(m), false, 'returns false: the message is left alone');
+    assert.equal(m.deleted, false);
+  }
+  assert.equal(al.timedOut, 0, 'no timeout, even after several hits');
+  assert.equal(channel.sent.length, sentBefore, 'no public warning');
+  assert.equal(logs.modlog.length, logsBefore + 4, 'but every hit is reported');
+  assert.match(textOf(logs.modlog.at(-1)), /AutoMod · Discord invites/);
+  assert.match(textOf(logs.modlog.at(-1)), /🧪 Trial mode: nothing was deleted/);
+  json(logs.modlog.at(-1));
+
+  // switching to the normal mode makes it act again
+  await updateSettings('g1', { automodMode: null });
+  const real = message('discord.gg/real', member('alice2'));
+  assert.equal(await automod.moderate(real), true);
+  assert.equal(real.deleted, true);
+});
+
 // ---------------------------------------------------------------- raid protection
 
 const raid = await import('../src/lib/raid.js');
