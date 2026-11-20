@@ -79,6 +79,7 @@ test('/verify tells unlinked members to verify with Bloxlink and offers Check ag
   assert.equal(await store.links.get('d2'), null);
   assert.match(textOf(i.replies.at(-1)), /Bloxlink/);
   assert.ok(customIds(i.replies.at(-1)).includes('verify:bloxlink'));
+  assert.match(JSON.stringify(i.replies.at(-1).components.map((c) => c.toJSON())), /blox\.link\/dashboard\/verifications\/verify\?guild=g1/);
 });
 
 test('Bloxlink being down gives a friendly message, not a crash', async () => {

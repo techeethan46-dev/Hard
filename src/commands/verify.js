@@ -94,7 +94,7 @@ async function viaBloxlink(interaction, update) {
     console.error('Bloxlink lookup failed:', err);
     return reply(notice('bad', 'I couldn\'t reach Bloxlink just now. Please try again in a minute.', { title: 'Try again soon', ephemeral: false }));
   }
-  if (!robloxId) return reply(bloxlinkPrompt());
+  if (!robloxId) return reply(bloxlinkPrompt(interaction.guildId));
 
   const user = await getUser(robloxId);
   if (!user) return reply(notice('bad', 'Bloxlink gave me an account I couldn\'t find on Roblox. Try again in a minute.', { ephemeral: false }));
@@ -102,7 +102,7 @@ async function viaBloxlink(interaction, update) {
   return reply(await verifiedCard(user.name, robloxId, result, 'Linked through Bloxlink. Use /update any time to refresh your roles.'));
 }
 
-function bloxlinkPrompt() {
+function bloxlinkPrompt(guildId) {
   return v2(card(colors.roblox,
     text(
       '### 🔗 Verify with Bloxlink first',
@@ -112,7 +112,7 @@ function bloxlinkPrompt() {
     ),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('verify:bloxlink').setLabel('Check again').setEmoji('🔄').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setLabel('Bloxlink').setEmoji('🔗').setStyle(ButtonStyle.Link).setURL('https://blox.link'),
+      new ButtonBuilder().setLabel('Bloxlink').setEmoji('🔗').setStyle(ButtonStyle.Link).setURL(`https://blox.link/dashboard/verifications/verify?guild=${guildId}`),
     ),
     footnote('Already verified there? Press Check again'),
   ));
