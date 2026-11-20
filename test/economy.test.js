@@ -546,3 +546,51 @@ test('/leaderboard has a coins board', async () => {
   assert.match(t, /🥇 <@rich> · \*\*🪙 5,000\*\*[\s\S]*<@u1> · \*\*🪙 900\*\*/);
   assert.deepEqual(buttonLabels(i.calls[0].p), ['Levels', 'Streaks', 'Coins']);
 });
+
+// ---------------------------------------------------------------- daily boost roles
+
+test('daily boost roles: staff set tiers, the best one counts, they show in the shop', async () => {
+  const eco = await import('../src/commands/economy.js');
+  const daily = await import('../src/commands/daily.js');
+  const shop = await import('../src/commands/shop.js');
+  const role = (id) => ({ id, toString: () => `<@&${id}>` });
+
+  for (const [id, percent] of [['gold', 100], ['bronze', 20], ['silver', 50]]) {
+    const set = ix({ sub: 'boost-set', options: { role: role(id), percent }, perms: ADMIN });
+    await eco.execute(set);
+    assert.match(said(set), /Boost saved/);
+  }
+  assert.deepEqual((await getSettings('g1')).dailyBoosts, [
+    { roleId: 'bronze', percent: 20 }, { roleId: 'silver', percent: 50 }, { roleId: 'gold', percent: 100 },
+  ]);
+  const list = ix({ sub: 'boost-list', perms: ADMIN });
+  await eco.execute(list);
+  assert.match(said(list), /\+20%[\s\S]*300 a day[\s\S]*\+100%[\s\S]*500 a day/);
+
+  const holds = (...ids) => ({ roles: { cache: { has: (r) => ids.includes(r) } } });
+  // Bronze + Gold together: only the best (+100%) counts, not +120%.
+  const both = ix({ user: 'b1', member: holds('bronze', 'gold') });
+  await daily.execute(both);
+  assert.match(card(both), /You got \*\*🪙 500\*\*![\s\S]*\+100%\*\* role boost/);
+  assert.equal(await coins('b1'), 500);
+  // Without a boost role: the normal 250, and no boost line.
+  const plain = ix({ user: 'b2', member: holds() });
+  await daily.execute(plain);
+  assert.match(card(plain), /You got \*\*🪙 250\*\*!/);
+  assert.doesNotMatch(said(plain), /boost/);
+
+  // The shop shows the perk next to a boost role.
+  await updateSettings('g1', { shopItems: [{ roleId: 'silver', price: 5000 }] });
+  const view = ix({ member: holds() });
+  await shop.execute(view);
+  assert.match(said(view), /5,000[\s\S]*⚡ \+50% daily/);
+  await updateSettings('g1', { shopItems: [] });
+
+  const rm = ix({ sub: 'boost-remove', options: { role: role('gold') }, perms: ADMIN });
+  await eco.execute(rm);
+  assert.match(said(rm), /Boost removed/);
+  assert.equal((await getSettings('g1')).dailyBoosts.length, 2);
+  const none = ix({ sub: 'boost-remove', options: { role: role('gold') }, perms: ADMIN });
+  await eco.execute(none);
+  assert.match(said(none), /doesn't have a boost/);
+});

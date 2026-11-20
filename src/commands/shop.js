@@ -42,15 +42,17 @@ export async function execute(interaction) {
 
   const coins = (await store.stats.get(interaction.guildId, interaction.user.id))?.coins ?? 0;
   const own = (id) => interaction.member?.roles?.cache?.has(id);
+  const boosts = (await getSettings(interaction.guildId)).dailyBoosts ?? [];
+  const perk = (id) => { const b = boosts.find((x) => x.roleId === id); return b ? ` · ⚡ +${b.percent}% daily` : ''; };
   return interaction.reply(v2(card(colors.warn,
     text('### 🛒 Role shop', `You have **${fmt(coins)}**`),
     divider(),
     text(items.length
-      ? items.map((x) => `<@&${x.roleId}> · **${fmt(x.price)}**${own(x.roleId) ? ' ✅ owned' : ''}`)
+      ? items.map((x) => `<@&${x.roleId}> · **${fmt(x.price)}**${perk(x.roleId)}${own(x.roleId) ? ' ✅ owned' : ''}`)
       : ['Nothing for sale yet. Staff can add roles with `/shop add`.']),
     items.length
       ? new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop:pick').setPlaceholder('Pick a role to buy…').addOptions(
-        items.map((x) => ({ label: (interaction.guild.roles.cache.get(x.roleId)?.name ?? 'role').slice(0, 100), value: x.roleId, description: `${fmt(x.price)}${own(x.roleId) ? ' · you own this' : ''}` })),
+        items.map((x) => ({ label: (interaction.guild.roles.cache.get(x.roleId)?.name ?? 'role').slice(0, 100), value: x.roleId, description: `${fmt(x.price)}${perk(x.roleId)}${own(x.roleId) ? ' · you own this' : ''}` })),
       ))
       : null,
     footnote('Earn coins by chatting and with /daily'),
