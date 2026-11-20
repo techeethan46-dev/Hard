@@ -3,6 +3,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { XP_COOLDOWN_MS, levelInfo, randomXp } from './levels.js';
 import { setStreakBadge, syncNameTags } from './nickname.js';
 import { getAfk } from './afk.js';
+import { randomCoins } from './economy.js';
 import { getSettings } from './settings.js';
 import { store } from './store.js';
 import { RESTORES_PER_MONTH, addDays, breakIfStale, daysBetween, dayKey, recordChat, restoreQuote } from './streaks.js';
@@ -36,6 +37,7 @@ export async function onMessage(message) {
 async function giveXp(message, settings) {
   const amount = randomXp();
   const doc = await store.stats.addXp(message.guildId, message.author.id, amount);
+  await store.stats.addCoins(message.guildId, message.author.id, randomCoins()); // a few coins too, at the same once-a-minute pace
   const before = levelInfo(doc.xp - amount).level;
   const after = levelInfo(doc.xp);
   if (after.level <= before) return;

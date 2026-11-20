@@ -62,6 +62,26 @@ for (const [name, init] of backends) {
       assert.equal((await store.warnings.list('g2', 'd2')).length, 1);
     });
 
+    test('coins: add, spend only what you have, daily once a day', async () => {
+      assert.equal((await store.stats.addCoins('g1', 'c1', 100)).coins, 100);
+      assert.equal(await store.stats.spend('g1', 'c1', 101), null, 'can\'t spend more than you have');
+      assert.equal((await store.stats.spend('g1', 'c1', 40)).coins, 60);
+      assert.equal(await store.stats.spend('g1', 'nobody', 1), null);
+      // five bets at once on 100 coins: exactly two of the 40-coin bets can be paid
+      await store.stats.addCoins('g1', 'c2', 100);
+      const results = await Promise.all(Array.from({ length: 5 }, () => store.stats.spend('g1', 'c2', 40)));
+      assert.equal(results.filter(Boolean).length, 2);
+      assert.equal((await store.stats.get('g1', 'c2')).coins, 20);
+
+      assert.equal((await store.stats.claimDaily('g1', 'c3', '2026-05-01', 250)).coins, 250);
+      assert.equal(await store.stats.claimDaily('g1', 'c3', '2026-05-01', 250), null, 'same day: nothing');
+      assert.equal((await store.stats.claimDaily('g1', 'c3', '2026-05-02', 250)).coins, 500);
+      // two claims at the same moment: only one is paid
+      const both = await Promise.all([store.stats.claimDaily('g1', 'c4', '2026-05-01', 250), store.stats.claimDaily('g1', 'c4', '2026-05-01', 250)]);
+      assert.equal(both.filter(Boolean).length, 1);
+      assert.deepEqual((await store.stats.top('g1', 'coins', 3)).map((d) => d.userId), ['c3', 'c4', 'c1']);
+    });
+
     test('composed messages: create, update, list newest first, delete', async () => {
       await store.composed.create({ messageId: 'c1', guildId: 'g1', channelId: 'ch', blocks: [{ type: 'card', text: 'one' }], createdAt: 1 });
       await store.composed.create({ messageId: 'c2', guildId: 'g1', channelId: 'ch', blocks: [{ type: 'card', text: 'two' }], createdAt: 2 });

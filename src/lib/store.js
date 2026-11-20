@@ -56,6 +56,7 @@ async function mongoBackend(db) {
     stats.createIndex({ guildId: 1, xp: -1 }),
     stats.createIndex({ guildId: 1, 'streak.current': -1 }),
     stats.createIndex({ guildId: 1, 'streak.lastDay': 1 }),
+    stats.createIndex({ guildId: 1, coins: -1 }),
     giveaways.createIndex({ ended: 1, endsAt: 1 }),
     giveaways.createIndex({ guildId: 1, endsAt: -1 }),
     composed.createIndex({ guildId: 1, createdAt: -1 }),
@@ -108,6 +109,31 @@ async function mongoBackend(db) {
         { $inc: { xp: amount }, $setOnInsert: { guildId: g, userId: u } },
         { upsert: true, returnDocument: 'after' },
       )),
+      /** Adds coins (a negative amount takes them) and returns the record. */
+      addCoins: async (g, u, amount) => clean(await stats.findOneAndUpdate(
+        { _id: sid(g, u) },
+        { $inc: { coins: amount }, $setOnInsert: { guildId: g, userId: u } },
+        { upsert: true, returnDocument: 'after' },
+      )),
+      /** Takes coins ONLY if they have enough, in one step (so two quick bets can't spend the same coins). Returns the record, or null. */
+      spend: async (g, u, amount) => clean(await stats.findOneAndUpdate(
+        { _id: sid(g, u), coins: { $gte: amount } },
+        { $inc: { coins: -amount } },
+        { returnDocument: 'after' },
+      )),
+      /** Gives the daily reward once per day. Returns the record, or null if they already took it today. */
+      claimDaily: async (g, u, day, amount) => {
+        try {
+          return clean(await stats.findOneAndUpdate(
+            { _id: sid(g, u), dailyDay: { $ne: day } },
+            { $set: { dailyDay: day }, $inc: { coins: amount }, $setOnInsert: { guildId: g, userId: u } },
+            { upsert: true, returnDocument: 'after' },
+          ));
+        } catch (err) {
+          if (err.code === 11000) return null; // the record exists and already has today's date
+          throw err;
+        }
+      },
       set: async (g, u, patch) => {
         await stats.updateOne({ _id: sid(g, u) }, { $set: { ...patch, guildId: g, userId: u } }, { upsert: true });
       },
@@ -240,6 +266,23 @@ export function memoryBackend(path = null) {
       addXp: async (g, u, amount) => {
         const d = (data.stats[wkey(g, u)] ??= { guildId: g, userId: u, xp: 0 });
         d.xp = (d.xp ?? 0) + amount; save();
+        return copy(d);
+      },
+      addCoins: async (g, u, amount) => {
+        const d = (data.stats[wkey(g, u)] ??= { guildId: g, userId: u });
+        d.coins = (d.coins ?? 0) + amount; save();
+        return copy(d);
+      },
+      spend: async (g, u, amount) => {
+        const d = data.stats[wkey(g, u)];
+        if (!d || (d.coins ?? 0) < amount) return null;
+        d.coins -= amount; save();
+        return copy(d);
+      },
+      claimDaily: async (g, u, day, amount) => {
+        const d = (data.stats[wkey(g, u)] ??= { guildId: g, userId: u });
+        if (d.dailyDay === day) return null;
+        d.dailyDay = day; d.coins = (d.coins ?? 0) + amount; save();
         return copy(d);
       },
       set: async (g, u, patch) => {
