@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { config, oauthEnabled } from '../config.js';
+import { bloxlinkEnabled } from '../lib/bloxlink.js';
 import { getSettings } from '../lib/settings.js';
 import { getGameIconUrl, getUniverseId } from '../lib/roblox.js';
 import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
@@ -31,7 +32,9 @@ export async function verifyPanel(guild) {
   const { placeId, gameName } = await getSettings(guild.id);
   const universeId = placeId && (await getUniverseId(placeId).catch(() => null));
   const icon = (universeId && (await getGameIconUrl(universeId).catch(() => null))) || guild.iconURL({ size: 256 });
-  const steps = oauthEnabled()
+  const steps = bloxlinkEnabled()
+    ? ['**1** · Verify with the Bloxlink bot (once)', '**2** · Press **Verify** below', '**3** · Done! Your roles appear instantly']
+    : oauthEnabled()
     ? ['**1** · Press **Verify** below', '**2** · Sign in with Roblox and press **Confirm**', '**3** · Done! Your roles appear instantly']
     : ['**1** · Press **Verify** and type your Roblox username', '**2** · Paste the code you get into your Roblox profile\'s About', '**3** · Press **Done**. Your roles appear instantly'];
 

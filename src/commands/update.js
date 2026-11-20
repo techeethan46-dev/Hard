@@ -1,5 +1,7 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { store } from '../lib/store.js';
+import { bloxlinkEnabled, lookupRoblox } from '../lib/bloxlink.js';
+import { getUser } from '../lib/roblox.js';
 import { syncMember } from '../lib/roles.js';
 import { getHeadshotUrl } from '../lib/roblox.js';
 import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
@@ -15,6 +17,13 @@ export async function execute(interaction) {
     return interaction.reply(notice('bad', 'Only staff can update other members.'));
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  // With Bloxlink, pick up a changed Roblox account for linked members first (best effort: if Bloxlink is down we keep the saved link).
+  if (bloxlinkEnabled()) {
+    const id = await lookupRoblox(interaction.guildId, target.id).catch(() => null);
+    const saved = await store.links.get(target.id);
+    const user = saved && id && id !== saved.robloxId ? await getUser(id) : null;
+    if (user) await store.links.set(target.id, { robloxId: id, username: user.name });
+  }
   const linked = await store.links.get(target.id);
   const r = await syncMember(target);
 

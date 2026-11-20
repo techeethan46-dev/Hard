@@ -11,6 +11,8 @@ export const config = {
   // Leave it blank to register them everywhere the bot is invited.
   guildId: env('GUILD_ID'),
   // Roles, channels and the game are NOT set here: run /setup in Discord.
+  // Optional. Lets members verify with Bloxlink instead (see /verify). Make the key on blox.link > Developer API.
+  bloxlinkKey: env('BLOXLINK_API_KEY'),
   oauth: {
     clientId: env('ROBLOX_OAUTH_CLIENT_ID'),
     clientSecret: env('ROBLOX_OAUTH_CLIENT_SECRET'),

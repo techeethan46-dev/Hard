@@ -22,6 +22,9 @@ services:
         sync: false
       - key: MONGODB_URI
         sync: false
+      # Optional: verify through Bloxlink (key from blox.link > Developer API, for this server).
+      - key: BLOXLINK_API_KEY
+        sync: false
       # Optional: "Sign in with Roblox". Leave empty to use the profile-code method.
       - key: ROBLOX_OAUTH_CLIENT_ID
         sync: false
