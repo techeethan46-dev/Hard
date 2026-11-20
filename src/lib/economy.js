@@ -14,6 +14,11 @@ export const rng = { int: (n) => randomInt(n) };
 
 export const randomCoins = () => CHAT_COINS[0] + rng.int(CHAT_COINS[1] - CHAT_COINS[0] + 1);
 export const fmt = (n) => `🪙 ${Number(n ?? 0).toLocaleString('en-US')}`;
+/** The best daily boost (percent) among the roles this member holds; 0 when none. Boosts do not add together. */
+export const dailyBoostPercent = (member, boosts = []) =>
+  boosts.reduce((best, b) => (member?.roles?.cache?.has?.(b.roleId) ? Math.max(best, b.percent) : best), 0);
+/** The /daily reward with a boost percent applied (rounded down). */
+export const dailyReward = (percent = 0) => Math.floor(DAILY_COINS * (100 + percent) / 100);
 export const payout = (bet, multiplier) => Math.floor(bet * multiplier);
 
 /** "500", "1.5k", "2m", "1,000", "all" or "half" -> { amount } or { error }. */

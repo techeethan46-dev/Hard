@@ -68,6 +68,7 @@ Skip any step you don't need; that feature just stays off.
 | `/shop view` | Everyone | Buy roles with coins (staff add roles with `/shop add` and `/shop remove`) |
 | `/coinflip`, `/slots`, `/blackjack`, `/roulette` | Everyone | Games you play with coins |
 | `/economy give/take` | Admins | Give coins to someone or take some back |
+| `/economy boost-set/boost-remove/boost-list` | Admins | Make a role raise the `/daily` reward (see below) |
 | `/help` | Everyone | A private menu of the commands, grouped by category. People only see the commands they can use |
 | `/verify` or the **Verify** button | Everyone | Links a Roblox account (see below) |
 | `/update [member]` | Everyone (staff for others) | Re-syncs roles and nickname, e.g. after a promotion |
@@ -147,6 +148,10 @@ Coins are the server's fake currency. They have no link to Robux or real money.
 
 - **Earning:** 2–5 coins on each message that also earns XP (so at most once a minute), and **250 coins every day** with
   `/daily` (the day follows the streak timezone from `/setup`).
+- **Daily boost roles:** `/economy boost-set role percent` makes a role add that percent to `/daily` (250 coins).
+  Only a member's best boost counts, and losing the role loses the boost. Sell the role in `/shop add` and the shop
+  shows its perk. Suggested tiers: Bronze +20% (300 a day), Silver +50% (375), Gold +100% (500), priced so Bronze
+  takes about a week of dailies, Silver about 3 weeks and Gold about 2 months.
 - **Using:** `/balance`, `/pay`, and the **role shop**: staff put roles up for sale with `/shop add role price`, and members
   pick one from `/shop view`, confirm, and buy it. If Discord refuses to give the role, the coins are refunded. Roles with
   moderator or admin permissions can't be sold. The **Coins** button on `/leaderboard` shows the richest members.
