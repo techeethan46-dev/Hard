@@ -213,7 +213,17 @@ These need **Message Content Intent** turned on in the Developer Portal (Bot tab
 
 ## Verification
 
-- **Profile code** (default): the member types their username, pastes a 6-word code into their Roblox
+The bot uses the first of these that is set up:
+
+- **Bloxlink** (easiest for members, no Roblox app review): members verify once with the Bloxlink bot and the bot
+  reads that link. To turn it on:
+  1. Add the Bloxlink bot to the server. The server owner (or someone who manages it) opens
+     <https://blox.link> > **Developer API**, picks the server and presses **Add**.
+  2. Press **See Key** and put it in Render as `BLOXLINK_API_KEY`. Never share it in chat.
+  3. Members run `/verify` (or press **Verify**). If they haven't verified with Bloxlink yet, the bot tells them to
+     and gives a **Check again** button. `/update` picks up a changed Roblox account.
+  The free key allows 2,000 lookups a day, which is plenty.
+- **Profile code** (default if nothing else is set): the member types their username, pastes a 6-word code into their Roblox
   profile's *About*, and clicks **Done**. Works with no extra setup.
 - **Sign in with Roblox** (optional, easier for members): one click and approve on roblox.com. To turn it on:
   1. <https://create.roblox.com/dashboard/credentials> → **OAuth 2.0 Apps** → create an app. Members see its name,

@@ -4,13 +4,15 @@ import {
 } from 'discord.js';
 import { randomInt } from 'node:crypto';
 import { oauthEnabled } from '../config.js';
+import { bloxlinkEnabled, lookupRoblox } from '../lib/bloxlink.js';
 import { createAuthUrl } from '../lib/oauth.js';
 import { getHeadshotUrl, getUser, getUserByUsername, profileUrl } from '../lib/roblox.js';
 import { store } from '../lib/store.js';
 import { linkAccount } from '../lib/verification.js';
 import { card, colors, divider, footnote, notice, section, text, thumb, v2 } from '../lib/ui.js';
 
-// Two ways to verify:
+// Ways to verify (the first one that is set up is used):
+//  0. Bloxlink: members verify with Bloxlink, we read their link. Used when BLOXLINK_API_KEY is set.
 //  1. "Sign in with Roblox" (OAuth) — one click + approve. Used when ROBLOX_OAUTH_* and PUBLIC_URL are set.
 //  2. Profile code — paste a word code into your Roblox About. Fallback, or `/verify username:<name>`.
 
@@ -32,13 +34,14 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction) {
   const username = interaction.options.getString('username');
-  if (username) return startCodeFlow(interaction, username);
+  if (username && !bloxlinkEnabled()) return startCodeFlow(interaction, username);
   return start(interaction);
 }
 
 export async function handleButton(interaction) {
   if (interaction.customId === 'verify:start') return start(interaction); // from the /panel verify button
   if (interaction.customId === 'verify:check') return checkCode(interaction);
+  if (interaction.customId === 'verify:bloxlink') return viaBloxlink(interaction, true);
 }
 
 export async function handleModal(interaction) {
@@ -47,6 +50,7 @@ export async function handleModal(interaction) {
 
 /** Default path: OAuth if configured, otherwise ask for a username and use the code method. */
 async function start(interaction) {
+  if (bloxlinkEnabled()) return viaBloxlink(interaction, false);
   if (!oauthEnabled()) {
     const modal = new ModalBuilder().setCustomId('verify:modal').setTitle('Verify your Roblox account').addComponents(
       new ActionRowBuilder().addComponents(
@@ -75,6 +79,43 @@ async function start(interaction) {
     ),
     footnote('This link is only for you and expires in 10 minutes · we never see your password'),
   ), { ephemeral: true }));
+}
+
+/** Bloxlink path: read the member's Bloxlink link, then give roles. `update` = they pressed "Check again". */
+async function viaBloxlink(interaction, update) {
+  if (update) await interaction.deferUpdate();
+  else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const reply = (payload) => interaction.editReply(payload);
+
+  let robloxId;
+  try {
+    robloxId = await lookupRoblox(interaction.guildId, interaction.user.id);
+  } catch (err) {
+    console.error('Bloxlink lookup failed:', err);
+    return reply(notice('bad', 'I couldn\'t reach Bloxlink just now. Please try again in a minute.', { title: 'Try again soon', ephemeral: false }));
+  }
+  if (!robloxId) return reply(bloxlinkPrompt());
+
+  const user = await getUser(robloxId);
+  if (!user) return reply(notice('bad', 'Bloxlink gave me an account I couldn\'t find on Roblox. Try again in a minute.', { ephemeral: false }));
+  const result = await linkAccount(interaction.member, { robloxId, username: user.name });
+  return reply(await verifiedCard(user.name, robloxId, result, 'Linked through Bloxlink. Use /update any time to refresh your roles.'));
+}
+
+function bloxlinkPrompt() {
+  return v2(card(colors.roblox,
+    text(
+      '### 🔗 Verify with Bloxlink first',
+      'I get your Roblox account from **Bloxlink**. I couldn\'t find one linked to you yet.',
+      '**1** · Verify with the Bloxlink bot (run `/verify` from Bloxlink, or press its verify button)',
+      '**2** · Come back here and press **Check again**',
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('verify:bloxlink').setLabel('Check again').setEmoji('🔄').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setLabel('Bloxlink').setEmoji('🔗').setStyle(ButtonStyle.Link).setURL('https://blox.link'),
+    ),
+    footnote('Already verified there? Press Check again'),
+  ));
 }
 
 async function startCodeFlow(interaction, username) {
