@@ -226,7 +226,7 @@ test('/rank and /leaderboard', async () => {
   await lb.handleButton(sw);
   assert.match(textOf(sw.calls[0]), /🔥 Streak leaderboard/);
   assert.match(textOf(sw.calls[0]), /🥇 <@u2> · \*\*40🔥\*\*/);
-  assert.deepEqual(buttonLabels(sw.calls[0]), ['Levels', 'Streaks']);
+  assert.deepEqual(buttonLabels(sw.calls[0]), ['Levels', 'Streaks', 'Coins']);
 });
 
 test('/xp set-level and reset', async () => {

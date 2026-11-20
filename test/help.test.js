@@ -46,7 +46,8 @@ test('sub-commands are listed under their command', () => {
 test('members only see commands they can use', () => {
   const t = everything(NOBODY);
   for (const shown of ['/verify', '/rank', '/leaderboard', '/streak', '/game', '/suggest', '/whois', '/ticket']) assert.ok(t.includes(`**${shown}**`), shown);
-  for (const hidden of ['/ban', '/kick', '/warn', '/setup', '/panel', '/giveaway', '/xp', '/streak-admin', '/message', '/raidmode', '/purge']) {
+  for (const shown of ['/balance', '/daily', '/pay', '/shop', '/coinflip', '/slots', '/blackjack', '/roulette']) assert.ok(t.includes(`**${shown}**`), shown);
+  for (const hidden of ['/economy', '/ban', '/kick', '/warn', '/setup', '/panel', '/giveaway', '/xp', '/streak-admin', '/message', '/raidmode', '/purge']) {
     assert.ok(!t.includes(`**${hidden}**`), `${hidden} should be hidden from members`);
   }
   assert.ok(t.includes('r!afk'));

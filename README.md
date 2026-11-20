@@ -64,6 +64,10 @@ Skip any step you don't need; that feature just stays off.
 
 | Command | Who | What it does |
 |---|---|---|
+| `/balance`, `/daily`, `/pay` | Everyone | Your coins, a free daily reward, and sending coins to someone |
+| `/shop view` | Everyone | Buy roles with coins (staff add roles with `/shop add` and `/shop remove`) |
+| `/coinflip`, `/slots`, `/blackjack`, `/roulette` | Everyone | Games you play with coins |
+| `/economy give/take` | Admins | Give coins to someone or take some back |
 | `/help` | Everyone | A private menu of the commands, grouped by category. People only see the commands they can use |
 | `/verify` or the **Verify** button | Everyone | Links a Roblox account (see below) |
 | `/update [member]` | Everyone (staff for others) | Re-syncs roles and nickname, e.g. after a promotion |
@@ -136,6 +140,24 @@ Good to know:
 you write your own with placeholders `{user}` `{username}` `{server}` `{count}` `{game}`, and `{avatar}` / `{servericon}` for
 pictures. **Back to the default** returns to the standard card. If another bot (like Carl-bot) already welcomes people, turn
 one of them off or members get two welcomes.
+
+## Coins and games
+
+Coins are the server's fake currency. They have no link to Robux or real money.
+
+- **Earning:** 2–5 coins on each message that also earns XP (so at most once a minute), and **250 coins every day** with
+  `/daily` (the day follows the streak timezone from `/setup`).
+- **Using:** `/balance`, `/pay`, and the **role shop**: staff put roles up for sale with `/shop add role price`, and members
+  pick one from `/shop view`, confirm, and buy it. If Discord refuses to give the role, the coins are refunded. Roles with
+  moderator or admin permissions can't be sold. The **Coins** button on `/leaderboard` shows the richest members.
+- **Bets:** type a number (`500`), `1.5k`, `all` or `half`. Smallest bet 10, biggest 50,000. Coins are taken in one safe
+  step, so two quick bets can't spend the same coins.
+- **Games:**
+  - `/coinflip` heads or tails, double or nothing.
+  - `/slots` three of a kind pays 4× up to 500× (💎 and 7️⃣ are the jackpots), two matching returns your bet. Pays back about 87%.
+  - `/blackjack` Hit, Stand or Double. Blackjack pays 3 to 2, the dealer stands on 17, and an idle hand stands by itself
+    after 2 minutes. If the bot restarts in the middle of a hand, that bet is lost.
+  - `/roulette` bet, then pick Red, Blue or Green (each 1 in 3). A win pays 2.7×. The coins are taken when you pick.
 
 ## Giveaways
 

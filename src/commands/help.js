@@ -19,6 +19,11 @@ export const CATEGORIES = [
     commands: ['rank', 'leaderboard', 'streak', 'xp', 'streak-admin'],
   },
   {
+    id: 'economy', emoji: '🪙', title: 'Economy & games', blurb: 'Earn coins, spend them, and play',
+    commands: ['balance', 'daily', 'pay', 'shop', 'coinflip', 'slots', 'blackjack', 'roulette', 'economy'],
+    extras: [{ usage: 'Earning coins', text: 'You get a few coins for chatting (about once a minute) and a bigger reward with `/daily`.' }],
+  },
+  {
     id: 'community', emoji: '🎉', title: 'Community', blurb: 'Suggestions, support tickets, giveaways and role panels',
     commands: ['suggest', 'ticket', 'giveaway', 'roles', 'sticky', 'message'],
     extras: [{ usage: 'Support tickets', text: 'Use the ticket buttons in the support channel to open a private chat with staff.' }],
