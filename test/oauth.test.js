@@ -25,7 +25,7 @@ const { initStore } = await import('../src/lib/store.js');
 const store = await initStore({ jsonPath: null });
 await (await import('../src/lib/settings.js')).updateSettings('g1', { verifiedRole: 'r-verified' });
 const { createAuthUrl } = await import('../src/lib/oauth.js');
-const { handleCallback } = await import('../src/web/server.js');
+const { handleCallback, POLICY } = await import('../src/web/server.js');
 
 function fakeClient() {
   const held = new Set();
@@ -75,4 +75,18 @@ test('forged state or cancelled sign-in does nothing', async () => {
   assert.equal((await handleCallback(client, new URLSearchParams({ state: 'fake', code: 'x' })))[0], 400);
   assert.equal((await handleCallback(client, new URLSearchParams({ error: 'access_denied' })))[0], 400);
   assert.ok(!(await store.links.get('d1')));
+});
+
+// Roblox's review asks for terms of use that say these things.
+test('the terms page says what Roblox requires: between you and us only, Roblox not affiliated, responsible or supporting it, claims waived', () => {
+  const [title, html] = POLICY['/terms'];
+  const t = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  assert.equal(title, 'Terms of use');
+  assert.match(t, /between you .* and the staff of this community only/);
+  assert.match(t, /not a contract with Roblox/);
+  assert.match(t, /Roblox Corporation is not affiliated with this service, does not endorse or sponsor it, is not responsible for it, and provides no support for it/);
+  assert.match(t, /you waive any claims against Roblox Corporation/);
+  assert.match(t, /only receive your Roblox user ID/, 'matches what the app really reads (openid only)');
+  assert.doesNotMatch(t, /public Roblox profile/);
+  assert.match(t, /trademark of Roblox Corporation/);
 });

@@ -53,7 +53,7 @@ small{display:block;margin-top:16px;color:#6d6f78;font-size:13px}
 const ASSETS = Object.fromEntries(['gift.png', 'trophy.png'].map((f) => [`/assets/${f}`, readFileSync(new URL(`../../assets/${f}`, import.meta.url))]));
 
 /** Plain text pages Roblox's OAuth app form can link to. */
-const POLICY = {
+export const POLICY = {
   '/privacy': ['Privacy policy', `
 <p>This Discord bot links a member's Discord account to their Roblox account when they choose to verify.</p>
 <p><b>What we store:</b> your Discord user ID, your Roblox user ID and username, and the time you verified. We also store
@@ -65,10 +65,17 @@ bot commands. It isn't sold or shared.</p>
 <p><b>Removing your data:</b> run <code>/unverify</code> in the server to unlink your account, or ask the server staff to
 delete your data.</p>`],
   '/terms': ['Terms of use', `
-<p>This bot is provided by the server's staff to run their Discord community, as is and without guarantees.</p>
-<p>By verifying you agree that the bot may read your public Roblox profile and use it in this Discord server.
-Don't misuse the bot or try to verify with an account that isn't yours. Staff may remove access for anyone who does.</p>
-<p>Roblox is a trademark of Roblox Corporation. This bot is not made or endorsed by Roblox.</p>`],
+<p>These terms are between <b>you</b> (the person using this service) and <b>the staff of this community</b> only.
+They are not a contract with Roblox.</p>
+<p><b>What this service does.</b> If you choose to verify, it uses Roblox's sign-in to learn the ID of the Roblox account you own.
+We use that ID to give you a verified role in our community's Discord server and to show your Roblox profile in our commands.
+We only receive your Roblox user ID. Your username and avatar are looked up from Roblox's public information, and we never see your password.</p>
+<p><b>Using it.</b> Only verify with a Roblox account that is yours, and don't misuse the service. Staff may remove access from anyone who does.</p>
+<p><b>Roblox is not involved.</b> Roblox Corporation is not affiliated with this service, does not endorse or sponsor it, is not responsible for it,
+and provides no support for it. If you need help, contact the community's staff, not Roblox. By using this service you agree that you waive any claims
+against Roblox Corporation relating to it. Roblox is a trademark of Roblox Corporation.</p>
+<p><b>No guarantees.</b> The service is provided as is. It may change or stop at any time.</p>
+<p><b>Your data.</b> See the <a href="/privacy" style="color:#8fa0ff">privacy policy</a> for what is stored and how to remove it.</p>`],
 };
 
 const policyPage = (title, html) => `<!doctype html><html lang="en"><head><meta charset="utf-8">
