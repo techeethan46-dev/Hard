@@ -1,44 +1,18 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, StringSelectMenuBuilder } from 'discord.js';
 import { fmt } from '../lib/economy.js';
 import { blockReason } from '../lib/reactionroles.js';
-import { getSettings, updateSettings } from '../lib/settings.js';
+import { getSettings } from '../lib/settings.js';
 import { store } from '../lib/store.js';
 import { card, colors, divider, footnote, notice, text, v2 } from '../lib/ui.js';
 
-// A role shop: staff put roles up for sale, members buy them with coins.
+// A role shop: staff put roles up for sale in /economy setup, members buy them with coins here.
 export const data = new SlashCommandBuilder()
   .setName('shop')
   .setDescription('Buy roles with your coins')
-  .addSubcommand((s) => s.setName('view').setDescription('See what is for sale'))
-  .addSubcommand((s) => s.setName('add').setDescription('(Staff) Put a role up for sale')
-    .addRoleOption((o) => o.setName('role').setDescription('The role to sell').setRequired(true))
-    .addIntegerOption((o) => o.setName('price').setDescription('Price in coins').setRequired(true).setMinValue(1).setMaxValue(10_000_000)))
-  .addSubcommand((s) => s.setName('remove').setDescription('(Staff) Take a role off sale')
-    .addRoleOption((o) => o.setName('role').setDescription('The role').setRequired(true)));
-
-const MAX_ITEMS = 25;
-const staff = (i) => i.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+  .addSubcommand((s) => s.setName('view').setDescription('See what is for sale'));
 
 export async function execute(interaction) {
-  const sub = interaction.options.getSubcommand();
   const items = (await getSettings(interaction.guildId)).shopItems ?? [];
-
-  if (sub === 'add' || sub === 'remove') {
-    if (!staff(interaction)) return interaction.reply(notice('bad', 'Only staff (**Manage Server**) can change the shop.'));
-    const role = interaction.options.getRole('role', true);
-    if (sub === 'remove') {
-      if (!items.some((x) => x.roleId === role.id)) return interaction.reply(notice('warn', `${role} isn't in the shop.`));
-      await updateSettings(interaction.guildId, { shopItems: items.filter((x) => x.roleId !== role.id) });
-      return interaction.reply(notice('ok', `${role} is no longer for sale.`, { title: 'Removed from the shop' }));
-    }
-    const why = blockReason(interaction.guild, interaction.guild.roles.cache.get(role.id));
-    if (why) return interaction.reply(notice('bad', `${role} can't be sold: it ${why}.`, { title: 'Can\'t sell that role' }));
-    const price = interaction.options.getInteger('price', true);
-    const next = [...items.filter((x) => x.roleId !== role.id), { roleId: role.id, price }].sort((a, b) => a.price - b.price);
-    if (next.length > MAX_ITEMS) return interaction.reply(notice('warn', `The shop holds up to ${MAX_ITEMS} roles.`));
-    await updateSettings(interaction.guildId, { shopItems: next });
-    return interaction.reply(notice('ok', `${role} is for sale for **${fmt(price)}**.`, { title: 'Added to the shop' }));
-  }
 
   const coins = (await store.stats.get(interaction.guildId, interaction.user.id))?.coins ?? 0;
   const own = (id) => interaction.member?.roles?.cache?.has(id);
@@ -49,7 +23,7 @@ export async function execute(interaction) {
     divider(),
     text(items.length
       ? items.map((x) => `<@&${x.roleId}> · **${fmt(x.price)}**${perk(x.roleId)}${own(x.roleId) ? ' ✅ owned' : ''}`)
-      : ['Nothing for sale yet. Staff can add roles with `/shop add`.']),
+      : ['Nothing for sale yet. Staff can add roles with `/economy setup`.']),
     items.length
       ? new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop:pick').setPlaceholder('Pick a role to buy…').addOptions(
         items.map((x) => ({ label: (interaction.guild.roles.cache.get(x.roleId)?.name ?? 'role').slice(0, 100), value: x.roleId, description: `${fmt(x.price)}${perk(x.roleId)}${own(x.roleId) ? ' · you own this' : ''}` })),

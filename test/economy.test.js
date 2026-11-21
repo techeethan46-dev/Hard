@@ -460,18 +460,8 @@ test('/shop: staff add roles, members confirm and buy, coins come back if the ro
   const shop = await import('../src/commands/shop.js');
   const role = (id) => guild.roles.cache.get(id);
 
-  const denied = ix({ sub: 'add', options: { role: role('vip'), price: 500 } });
-  await shop.execute(denied);
-  assert.match(said(denied), /Only staff/);
-
-  const dangerous = ix({ sub: 'add', options: { role: role('mod'), price: 500 }, perms: ADMIN });
-  await shop.execute(dangerous);
-  assert.match(said(dangerous), /can't be sold: it has the Ban Members permission/);
-
-  const add = ix({ sub: 'add', options: { role: role('vip'), price: 500 }, perms: ADMIN });
-  await shop.execute(add);
-  assert.match(said(add), /Added to the shop[\s\S]*for sale for \*\*🪙 500\*\*/);
-  assert.deepEqual((await getSettings('g1')).shopItems, [{ roleId: 'vip', price: 500 }]);
+  // Staff put roles on sale in /economy setup (tested below); here the shop starts with one role for sale.
+  await updateSettings('g1', { shopItems: [{ roleId: 'vip', price: 500 }] });
 
   await reset(); await give(300);
   const view = ix({ sub: 'view' });
@@ -511,9 +501,7 @@ test('/shop: staff add roles, members confirm and buy, coins come back if the ro
   assert.match(textOf(failing.calls[0].p), /weren't charged/);
   assert.equal(await coins(), 500);
 
-  const remove = ix({ sub: 'remove', options: { role: role('vip') }, perms: ADMIN });
-  await shop.execute(remove);
-  assert.match(said(remove), /no longer for sale/);
+  await updateSettings('g1', { shopItems: [] }); // staff took it off sale
   const gone = ix({ customId: 'shop:buy:vip' });
   await shop.handleButton(gone);
   assert.match(textOf(gone.calls[0].p), /isn't for sale anymore/);
