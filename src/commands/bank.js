@@ -2,7 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import { acceptTax, credit, getOffer, isOverdue, rollSkip, startSkip } from '../lib/bank.js';
 import {
   LOAN_BANK_SHARE, LOAN_DAYS, LOAN_INTEREST, LOAN_MAX, LOAN_MIN, LOAN_MIN_LEVEL, ROB_CHANCE_PERCENT,
-  ROB_COOLDOWN_MS, ROB_FEE_RATE, ROB_LOOT, ROB_MIN_BANK, ROB_MIN_FEE, TAX_RATE, fmt, rng,
+  ROB_COOLDOWN_MS, ROB_FEE_RATE, ROB_LOOT, ROB_MAX_LOOT, ROB_MIN_BANK, ROB_MIN_FEE, TAX_RATE, fmt, rng,
 } from '../lib/economy.js';
 import { levelInfo } from '../lib/levels.js';
 import { store } from '../lib/store.js';
@@ -80,10 +80,10 @@ async function rob(interaction) {
   if (rng.int(100) >= ROB_CHANCE_PERCENT) {
     return interaction.reply(v2(card(colors.bad,
       text('### 🚔 Busted!', `${interaction.user} tried to rob the bank and was caught. The **${fmt(fee)}** fee went into the bank.`, `-# The bank now holds ${fmt(after.coins)}`),
-      footnote(`${ROB_CHANCE_PERCENT}% of attempts work · next try in 24 hours`),
+      footnote(`${ROB_CHANCE_PERCENT}% of attempts work · a win takes ${Math.round(ROB_LOOT * 100)}% of the bank, up to ${fmt(ROB_MAX_LOOT)} · next try in 24 hours`),
     )));
   }
-  const loot = await store.bank.take(guildId, Math.floor(after.coins * ROB_LOOT));
+  const loot = await store.bank.take(guildId, Math.min(ROB_MAX_LOOT, Math.floor(after.coins * ROB_LOOT)));
   await credit(guildId, userId, loot);
   await store.bank.set(guildId, { lastHeist: { userId, amount: loot, at: Date.now() } });
   return interaction.reply(v2(card(colors.ok,
