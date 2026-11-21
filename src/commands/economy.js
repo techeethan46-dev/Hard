@@ -1,8 +1,12 @@
-import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { dailyReward, fmt } from '../lib/economy.js';
+import {
+  ActionRowBuilder, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder, StringSelectMenuBuilder,
+  TextInputBuilder, TextInputStyle,
+} from 'discord.js';
+import { DAILY_COINS, dailyReward, fmt } from '../lib/economy.js';
 import { getSettings, updateSettings } from '../lib/settings.js';
 import { store } from '../lib/store.js';
-import { notice } from '../lib/ui.js';
+import { blockReason } from '../lib/reactionroles.js';
+import { card, colors, divider, footnote, notice, text, v2 } from '../lib/ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('economy')
@@ -14,38 +18,99 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName('take').setDescription('Take coins from a member (never below zero)')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
     .addIntegerOption((o) => o.setName('amount').setDescription('Coins').setRequired(true).setMinValue(1).setMaxValue(1_000_000_000)))
-  .addSubcommand((s) => s.setName('boost-set').setDescription('Make a role raise the /daily reward')
-    .addRoleOption((o) => o.setName('role').setDescription('The role').setRequired(true))
-    .addIntegerOption((o) => o.setName('percent').setDescription('Extra percent, e.g. 20 for +20%').setRequired(true).setMinValue(1).setMaxValue(1000)))
-  .addSubcommand((s) => s.setName('boost-remove').setDescription('Stop a role raising the /daily reward')
-    .addRoleOption((o) => o.setName('role').setDescription('The role').setRequired(true)))
-  .addSubcommand((s) => s.setName('boost-list').setDescription('See which roles raise the /daily reward'));
+  .addSubcommand((s) => s.setName('setup').setDescription('Set up the role shop and the daily boosts'));
 
-const MAX_BOOSTS = 10;
+// ---------------------------------------------------------------- /economy setup
+// One screen for the role shop: pick a role, type its price and (optionally) how much it raises /daily.
+// customIds: economy:pick (role menu) · economy:item:<roleId> (modal) · economy:remove (menu)
 
-async function boosts(interaction, sub) {
-  const list = (await getSettings(interaction.guildId)).dailyBoosts ?? [];
-  if (sub === 'boost-list') {
-    return interaction.reply(notice('ok', list.length
-      ? list.map((b) => `<@&${b.roleId}> · **+${b.percent}%** (${fmt(dailyReward(b.percent))} a day)`).join('\n')
-      : 'No boost roles yet. Add one with `/economy boost-set`.', { title: '⚡ Daily boosts' }));
+const MAX_ITEMS = 25;
+const allowed = (i) => i.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+const denied = (i) => i.reply(notice('bad', 'You need the **Manage Server** permission to change the economy setup.'));
+
+/** The shop roles and boost roles as one list: { roleId, price?, percent? }. */
+function entries(settings) {
+  const map = new Map();
+  for (const x of settings.shopItems ?? []) map.set(x.roleId, { roleId: x.roleId, price: x.price });
+  for (const b of settings.dailyBoosts ?? []) map.set(b.roleId, { ...map.get(b.roleId), roleId: b.roleId, percent: b.percent });
+  return [...map.values()].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+}
+
+export async function render(guild, error) {
+  const list = entries(await getSettings(guild.id));
+  const line = (e) => [`<@&${e.roleId}>`, e.price ? `**${fmt(e.price)}**` : '*not for sale*',
+    e.percent ? `⚡ **+${e.percent}%** daily (${fmt(dailyReward(e.percent))})` : null].filter(Boolean).join(' · ');
+  return v2(card(colors.warn,
+    text('## 🪙 Economy setup', 'Pick a role below, then type its **price** and how much it should **raise the /daily reward**. The role goes on sale in `/shop` right away.',
+      `-# /daily gives **${fmt(DAILY_COINS)}** with no boost. Members only get their best boost, never several added together.`),
+    divider(),
+    text('**Shop roles**', ...(list.length ? list.map(line) : ['Nothing yet. Pick a role to start.'])),
+    error ? text(`⚠️ ${error}`) : null,
+    divider(),
+    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId('economy:pick').setPlaceholder('Add a role, or pick one to change it…')),
+    list.length
+      ? new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('economy:remove').setPlaceholder('Remove a role…').addOptions(
+        list.map((e) => ({ label: (guild.roles.cache.get(e.roleId)?.name ?? 'role').slice(0, 100), value: e.roleId }))))
+      : null,
+    footnote('Changes save as soon as you submit them'),
+  ), { ephemeral: true });
+}
+
+export async function handleSelect(interaction) {
+  if (!allowed(interaction)) return denied(interaction);
+  const [, action] = interaction.customId.split(':');
+  const roleId = interaction.values[0];
+
+  if (action === 'pick') {
+    const why = blockReason(interaction.guild, interaction.guild.roles.cache.get(roleId));
+    if (why) return interaction.update(await render(interaction.guild, `<@&${roleId}> can't be sold: it ${why}.`));
+    const have = entries(await getSettings(interaction.guildId)).find((e) => e.roleId === roleId);
+    const name = interaction.guild.roles.cache.get(roleId)?.name ?? 'role';
+    const price = new TextInputBuilder().setCustomId('price').setLabel('Price in coins').setStyle(TextInputStyle.Short)
+      .setPlaceholder('e.g. 1500').setMaxLength(8).setRequired(true);
+    const boost = new TextInputBuilder().setCustomId('percent').setLabel('Daily boost % (0 for none)').setStyle(TextInputStyle.Short)
+      .setPlaceholder('e.g. 20 gives +20% on /daily').setMaxLength(4).setRequired(false);
+    if (have?.price) price.setValue(String(have.price));
+    if (have?.percent) boost.setValue(String(have.percent));
+    return interaction.showModal(new ModalBuilder().setCustomId(`economy:item:${roleId}`).setTitle(`@${name}`.slice(0, 45))
+      .addComponents(new ActionRowBuilder().addComponents(price), new ActionRowBuilder().addComponents(boost)));
   }
-  const role = interaction.options.getRole('role', true);
-  if (sub === 'boost-remove') {
-    if (!list.some((b) => b.roleId === role.id)) return interaction.reply(notice('warn', `${role} doesn't have a boost.`));
-    await updateSettings(interaction.guildId, { dailyBoosts: list.filter((b) => b.roleId !== role.id) });
-    return interaction.reply(notice('ok', `${role} no longer boosts the daily reward.`, { title: 'Boost removed' }));
+
+  if (action === 'remove') {
+    const settings = await getSettings(interaction.guildId);
+    await updateSettings(interaction.guildId, {
+      shopItems: (settings.shopItems ?? []).filter((x) => x.roleId !== roleId),
+      dailyBoosts: (settings.dailyBoosts ?? []).filter((b) => b.roleId !== roleId),
+    });
+    return interaction.update(await render(interaction.guild));
   }
-  const percent = interaction.options.getInteger('percent', true);
-  const next = [...list.filter((b) => b.roleId !== role.id), { roleId: role.id, percent }].sort((a, b) => a.percent - b.percent);
-  if (next.length > MAX_BOOSTS) return interaction.reply(notice('warn', `You can have up to ${MAX_BOOSTS} boost roles.`));
-  await updateSettings(interaction.guildId, { dailyBoosts: next });
-  return interaction.reply(notice('ok', `${role} now gives **+${percent}%** on \`/daily\` (**${fmt(dailyReward(percent))}** a day). Only a member's best boost counts.`, { title: 'Boost saved' }));
+}
+
+export async function handleModal(interaction) {
+  if (!allowed(interaction)) return denied(interaction);
+  const roleId = interaction.customId.split(':')[2];
+  const price = Number(interaction.fields.getTextInputValue('price').trim().replace(/[,\s]/g, ''));
+  const rawPercent = interaction.fields.getTextInputValue('percent').trim();
+  const percent = rawPercent === '' ? 0 : Number(rawPercent.replace('%', ''));
+
+  if (!Number.isInteger(price) || price < 1 || price > 10_000_000) return interaction.update(await render(interaction.guild, 'The price must be a whole number from 1 to 10,000,000.'));
+  if (!Number.isInteger(percent) || percent < 0 || percent > 1000) return interaction.update(await render(interaction.guild, 'The boost must be a whole number from 0 to 1000 (0 means no boost).'));
+  const why = blockReason(interaction.guild, interaction.guild.roles.cache.get(roleId));
+  if (why) return interaction.update(await render(interaction.guild, `<@&${roleId}> can't be sold: it ${why}.`));
+
+  const settings = await getSettings(interaction.guildId);
+  const items = (settings.shopItems ?? []).filter((x) => x.roleId !== roleId);
+  if (items.length >= MAX_ITEMS) return interaction.update(await render(interaction.guild, `The shop holds up to ${MAX_ITEMS} roles.`));
+  const boosts = (settings.dailyBoosts ?? []).filter((b) => b.roleId !== roleId);
+  await updateSettings(interaction.guildId, {
+    shopItems: [...items, { roleId, price }].sort((a, b) => a.price - b.price),
+    dailyBoosts: (percent ? [...boosts, { roleId, percent }] : boosts).sort((a, b) => a.percent - b.percent),
+  });
+  return interaction.update(await render(interaction.guild));
 }
 
 export async function execute(interaction) {
-  const sub = interaction.options.getSubcommand();
-  if (sub.startsWith('boost-')) return boosts(interaction, sub);
+  if (interaction.options.getSubcommand() === 'setup') return interaction.reply(await render(interaction.guild));
   const user = interaction.options.getUser('member', true);
   if (user.bot) return interaction.reply(notice('warn', 'Bots don\'t have coins.'));
   const amount = interaction.options.getInteger('amount', true);
