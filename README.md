@@ -65,7 +65,7 @@ Skip any step you don't need; that feature just stays off.
 | Command | Who | What it does |
 |---|---|---|
 | `/balance`, `/daily`, `/pay` | Everyone | Your coins, a free daily reward, and sending coins to someone |
-| `/shop view` | Everyone | Buy roles with coins (staff add roles with `/shop add` and `/shop remove`) |
+| `/shop view` | Everyone | Buy roles with coins (staff add and remove roles in `/economy setup`) |
 | `/coinflip`, `/slots`, `/blackjack`, `/roulette` | Everyone | Games you play with coins |
 | `/economy give/take` | Admins | Give coins to someone or take some back |
 | `/economy setup` | Admins | One screen for the role shop: pick a role, type its price and its daily boost % |
@@ -152,7 +152,7 @@ Coins are the server's fake currency. They have no link to Robux or real money.
   `/daily`, which gives 250 coins). The role goes on sale in `/shop` and shows its perk. Only a member's best boost
   counts, and losing the role loses the boost. Suggested tiers: Bronze +20% (300 a day), Silver +50% (375), Gold +100% (500), priced so Bronze
   takes about a week of dailies, Silver about 3 weeks and Gold about 2 months.
-- **Using:** `/balance`, `/pay`, and the **role shop**: staff put roles up for sale with `/shop add role price`, and members
+- **Using:** `/balance`, `/pay`, and the **role shop**: staff put roles up for sale in `/economy setup`, and members
   pick one from `/shop view`, confirm, and buy it. If Discord refuses to give the role, the coins are refunded. Roles with
   moderator or admin permissions can't be sold. The **Coins** button on `/leaderboard` shows the richest members.
 - **Bets:** type a number (`500`), `1.5k`, `all` or `half`. Smallest bet 10, biggest 50,000. Coins are taken in one safe
