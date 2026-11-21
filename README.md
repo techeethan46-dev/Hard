@@ -155,8 +155,19 @@ Coins are the server's fake currency. They have no link to Robux or real money.
 - **Using:** `/balance`, `/pay`, and the **role shop**: staff put roles up for sale in `/economy setup`, and members
   pick one from `/shop view`, confirm, and buy it. If Discord refuses to give the role, the coins are refunded. Roles with
   moderator or admin permissions can't be sold. The **Coins** button on `/leaderboard` shows the richest members.
-- **Bets:** type a number (`500`), `1.5k`, `all` or `half`. Smallest bet 10, biggest 50,000. Coins are taken in one safe
+- **Bets:** type a number (`500`), `1.5k`, `all` or `half`. Smallest bet 10, no maximum. Coins are taken in one safe
   step, so two quick bets can't spend the same coins.
+- **The bank** (`/bank`): a shared fund everyone can see. It starts with **100,000** coins (once) and gets a **45% tax**
+  on chat coins, on `/pay` (the receiver gets 55%) and on game profit (not on `/daily`). Every `/daily` is paid by the
+  bank first; if the bank is short, the rest is created new so nobody is refused.
+  - **Tax on a win:** after a win a private message offers **Pay tax** or **Don't pay tax** for 10 seconds (no answer
+    means you pay; the tax is already in the bank). Not paying is a 60% chance of being caught, and then the bank
+    takes 80% of all your coins. Above 100,000 coins you are asked to confirm first.
+  - **`/bank rob`:** 5% chance to take 30% of the bank. It costs 10% of your coins (at least 5,000, goes to the bank),
+    once every 24 hours per person, and the result is posted for everyone. Not possible when the bank is under 1,000.
+  - **`/bank loan` / `/bank repay`:** needs a linked Roblox account and level 5. Borrow 100 to 2,000 (and at most 10% of
+    the bank), pay back 10% extra within 3 days. After the deadline half of everything you receive goes to the debt,
+    and you can't gamble or buy from the shop until it is paid.
 - **Games:**
   - `/coinflip` heads or tails, double or nothing.
   - `/slots` three of a kind pays 4× up to 500× (💎 and 7️⃣ are the jackpots), two matching returns your bet. Pays back about 87%.

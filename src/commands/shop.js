@@ -1,4 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, StringSelectMenuBuilder } from 'discord.js';
+import { isOverdue } from '../lib/bank.js';
 import { fmt } from '../lib/economy.js';
 import { blockReason } from '../lib/reactionroles.js';
 import { getSettings } from '../lib/settings.js';
@@ -55,6 +56,8 @@ export async function handleButton(interaction) {
   const why = blockReason(interaction.guild, role);
   if (why) return done('bad', `That role can't be given out right now: it ${why}. Tell the staff.`, 'Can\'t buy that');
   if (interaction.member.roles.cache.has(roleId)) return done('warn', `You already have ${role}.`, 'Already yours');
+  const me = await store.stats.get(interaction.guildId, interaction.user.id);
+  if (isOverdue(me)) return done('bad', `Your loan is overdue: you owe **${fmt(me.loan.owed)}**. Pay it back with \`/bank repay\` first.`, 'Loan overdue');
 
   const left = await store.stats.spend(interaction.guildId, interaction.user.id, item.price);
   if (!left) {

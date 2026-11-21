@@ -20,8 +20,8 @@ export const CATEGORIES = [
   },
   {
     id: 'economy', emoji: '🪙', title: 'Economy & games', blurb: 'Earn coins, spend them, and play',
-    commands: ['balance', 'daily', 'pay', 'shop', 'coinflip', 'slots', 'blackjack', 'roulette', 'economy'],
-    extras: [{ usage: 'Earning coins', text: 'You get a few coins for chatting (about once a minute) and a bigger reward with `/daily`.' }],
+    commands: ['balance', 'daily', 'pay', 'shop', 'bank', 'coinflip', 'slots', 'blackjack', 'roulette', 'economy'],
+    extras: [{ usage: 'Earning coins', text: 'You get a few coins for chatting (about once a minute) and a bigger reward with `/daily`. Chat coins, `/pay` and game winnings pay a 45% tax into the bank.' }],
   },
   {
     id: 'community', emoji: '🎉', title: 'Community', blurb: 'Suggestions, support tickets, giveaways and role panels',

@@ -4,7 +4,28 @@ import { randomInt } from 'node:crypto';
 export const DAILY_COINS = 250;
 export const CHAT_COINS = [2, 5]; // earned (min, max) on each message that also earns XP, so at most once a minute
 export const MIN_BET = 10;
-export const MAX_BET = 50_000;
+
+// The bank: tax goes in, /daily is paid from it first, loans and heists come out of it.
+export const BANK_START = 100_000;        // the first fund, given once
+export const TAX_RATE = 0.45;             // on chat coins, /pay and game profit (not on /daily)
+export const taxOn = (n) => Math.round(n * TAX_RATE);
+export const TAX_CHOICE_MS = 10_000;      // how long the "pay tax / don't pay tax" buttons stay
+export const EVADE_CATCH_PERCENT = 60;    // chance of being caught when you don't pay
+export const EVADE_PENALTY = 0.8;         // the bank takes this share of your coins when caught
+export const EVADE_CONFIRM_ABOVE = 100_000; // above this many coins, ask "are you sure?" first
+export const ROB_CHANCE_PERCENT = 5;
+export const ROB_LOOT = 0.3;              // share of the bank you take on success
+export const ROB_FEE_RATE = 0.1;          // share of your wallet it costs to try (goes to the bank)
+export const ROB_MIN_FEE = 5_000;
+export const ROB_COOLDOWN_MS = 24 * 3_600_000;
+export const ROB_MIN_BANK = 1_000;        // not worth robbing a nearly empty bank
+export const LOAN_MIN = 100;
+export const LOAN_MAX = 2_000;
+export const LOAN_BANK_SHARE = 0.1;       // a loan can't be more than this share of the bank
+export const LOAN_INTEREST = 0.1;
+export const LOAN_DAYS = 3;
+export const LOAN_MIN_LEVEL = 5;
+
 export const COINFLIP_PAYOUT = 2; // double or nothing
 export const ROULETTE_PAYOUT = 2.7; // three colors, so a fair payout would be 3
 export const BLACKJACK_NATURAL_PAYOUT = 2.5; // 3 to 2
@@ -25,7 +46,7 @@ export const payout = (bet, multiplier) => Math.floor(bet * multiplier);
 export function parseBet(input, balance) {
   const s = String(input ?? '').trim().toLowerCase().replace(/[,_\s]/g, '');
   let amount;
-  if (s === 'all' || s === 'max') amount = Math.min(balance, MAX_BET);
+  if (s === 'all' || s === 'max') amount = balance;
   else if (s === 'half') amount = Math.floor(balance / 2);
   else {
     const m = s.match(/^(\d+(?:\.\d+)?)([km])?$/);
@@ -33,7 +54,6 @@ export function parseBet(input, balance) {
     amount = Math.floor(Number(m[1]) * ({ k: 1000, m: 1_000_000 }[m[2]] ?? 1));
   }
   if (amount < MIN_BET) return { error: `The smallest bet is ${fmt(MIN_BET)}.` };
-  if (amount > MAX_BET) return { error: `The biggest bet is ${fmt(MAX_BET)}.` };
   return { amount };
 }
 
