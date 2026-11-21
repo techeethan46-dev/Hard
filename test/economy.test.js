@@ -124,6 +124,7 @@ function ix(opts = {}) {
       getSubcommand: () => opts.sub,
     },
     customId: opts.customId, values: opts.values, message: opts.message ?? { id: opts.messageId ?? 'm1' },
+    fields: { getTextInputValue: (k) => (opts.fields ?? {})[k] ?? '' }, showModal: rec('showModal'),
     reply: rec('reply'), update: rec('update'), editReply: rec('editReply'),
   };
 }
@@ -547,50 +548,80 @@ test('/leaderboard has a coins board', async () => {
   assert.deepEqual(buttonLabels(i.calls[0].p), ['Levels', 'Streaks', 'Coins']);
 });
 
-// ---------------------------------------------------------------- daily boost roles
+// ---------------------------------------------------------------- /economy setup and daily boost roles
 
-test('daily boost roles: staff set tiers, the best one counts, they show in the shop', async () => {
+test('/economy setup: one screen sets price and daily boost, the best boost counts, the shop shows it', async () => {
   const eco = await import('../src/commands/economy.js');
   const daily = await import('../src/commands/daily.js');
   const shop = await import('../src/commands/shop.js');
-  const role = (id) => ({ id, toString: () => `<@&${id}>` });
-
-  for (const [id, percent] of [['gold', 100], ['bronze', 20], ['silver', 50]]) {
-    const set = ix({ sub: 'boost-set', options: { role: role(id), percent }, perms: ADMIN });
-    await eco.execute(set);
-    assert.match(said(set), /Boost saved/);
+  for (const id of ['bronze', 'silver', 'gold']) {
+    guild.roles.cache.set(id, { id, name: id, position: 1, permissions: new PermissionsBitField(0n), managed: false, toString: () => `<@&${id}>` });
   }
+
+  const open = ix({ sub: 'setup', perms: ADMIN });
+  await eco.execute(open);
+  assert.ok(open.calls[0].p.flags & 64);
+  assert.match(textOf(open.calls[0].p), /Economy setup[\s\S]*Nothing yet/);
+  assert.deepEqual(customIds(open.calls[0].p), ['economy:pick']);
+
+  // Members can't use the wizard's menus.
+  const sneaky = ix({ customId: 'economy:pick', values: ['gold'] });
+  await eco.handleSelect(sneaky);
+  assert.match(said(sneaky), /Manage Server/);
+
+  // Picking a role opens the price + boost form.
+  const pick = ix({ customId: 'economy:pick', values: ['gold'], perms: ADMIN });
+  await eco.handleSelect(pick);
+  assert.equal(pick.calls[0].kind, 'showModal');
+  assert.equal(pick.calls[0].p.toJSON().custom_id, 'economy:item:gold');
+
+  const save = async (id, price, percent) => {
+    const m = ix({ customId: `economy:item:${id}`, fields: { price, percent }, perms: ADMIN });
+    await eco.handleModal(m);
+    return m;
+  };
+  await save('gold', '30,000', '100');
+  await save('bronze', '1500', '20');
+  const last = await save('silver', '8000', '50');
+  assert.match(textOf(last.calls[0].p), /<@&bronze> · \*\*🪙 1,500\*\* · ⚡ \*\*\+20%\*\* daily \(🪙 300\)[\s\S]*<@&gold> · \*\*🪙 30,000\*\* · ⚡ \*\*\+100%\*\* daily \(🪙 500\)/);
+  assert.deepEqual((await getSettings('g1')).shopItems, [
+    { roleId: 'bronze', price: 1500 }, { roleId: 'silver', price: 8000 }, { roleId: 'gold', price: 30000 },
+  ]);
   assert.deepEqual((await getSettings('g1')).dailyBoosts, [
     { roleId: 'bronze', percent: 20 }, { roleId: 'silver', percent: 50 }, { roleId: 'gold', percent: 100 },
   ]);
-  const list = ix({ sub: 'boost-list', perms: ADMIN });
-  await eco.execute(list);
-  assert.match(said(list), /\+20%[\s\S]*300 a day[\s\S]*\+100%[\s\S]*500 a day/);
 
+  // Bad numbers and unsafe roles are refused with a message, and nothing is saved.
+  for (const [price, percent, re] of [['abc', '', /price must be/], ['0', '', /price must be/], ['100', '5000', /boost must be/], ['100', 'x', /boost must be/]]) {
+    const bad = await save('silver', price, percent);
+    assert.match(textOf(bad.calls[0].p), re);
+  }
+  const unsafe = await save('mod', '100', '');
+  assert.match(textOf(unsafe.calls[0].p), /can't be sold: it has the Ban Members permission/);
+  assert.equal((await getSettings('g1')).shopItems.length, 3);
+
+  // Daily: Bronze + Gold together pay +100%, not +120%; nobody with no boost role gets 250.
   const holds = (...ids) => ({ roles: { cache: { has: (r) => ids.includes(r) } } });
-  // Bronze + Gold together: only the best (+100%) counts, not +120%.
   const both = ix({ user: 'b1', member: holds('bronze', 'gold') });
   await daily.execute(both);
   assert.match(card(both), /You got \*\*🪙 500\*\*![\s\S]*\+100%\*\* role boost/);
   assert.equal(await coins('b1'), 500);
-  // Without a boost role: the normal 250, and no boost line.
   const plain = ix({ user: 'b2', member: holds() });
   await daily.execute(plain);
   assert.match(card(plain), /You got \*\*🪙 250\*\*!/);
   assert.doesNotMatch(said(plain), /boost/);
 
-  // The shop shows the perk next to a boost role.
-  await updateSettings('g1', { shopItems: [{ roleId: 'silver', price: 5000 }] });
+  // The shop shows the perk.
   const view = ix({ member: holds() });
   await shop.execute(view);
-  assert.match(said(view), /5,000[\s\S]*⚡ \+50% daily/);
-  await updateSettings('g1', { shopItems: [] });
+  assert.match(said(view), /<@&silver> · \*\*🪙 8,000\*\* · ⚡ \+50% daily/);
 
-  const rm = ix({ sub: 'boost-remove', options: { role: role('gold') }, perms: ADMIN });
-  await eco.execute(rm);
-  assert.match(said(rm), /Boost removed/);
-  assert.equal((await getSettings('g1')).dailyBoosts.length, 2);
-  const none = ix({ sub: 'boost-remove', options: { role: role('gold') }, perms: ADMIN });
-  await eco.execute(none);
-  assert.match(said(none), /doesn't have a boost/);
+  // Setting 0 removes only the boost; Remove takes the role out of both lists.
+  await save('bronze', '1500', '0');
+  assert.deepEqual((await getSettings('g1')).dailyBoosts.map((b) => b.roleId), ['silver', 'gold']);
+  const rm = ix({ customId: 'economy:remove', values: ['gold'], perms: ADMIN });
+  await eco.handleSelect(rm);
+  assert.deepEqual((await getSettings('g1')).shopItems.map((x) => x.roleId), ['bronze', 'silver']);
+  assert.deepEqual((await getSettings('g1')).dailyBoosts.map((b) => b.roleId), ['silver']);
+  await updateSettings('g1', { shopItems: [], dailyBoosts: [] });
 });
