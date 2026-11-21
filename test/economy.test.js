@@ -29,12 +29,12 @@ test('bets: numbers, k and m, all and half, with clear errors', () => {
   ok('2K', 5000, 2000);
   ok('all', 800, 800);
   ok('half', 801, 400);
-  ok('all', 1_000_000, E.MAX_BET); // capped
+  ok('all', 1_000_000, 1_000_000); // no maximum: all means everything
   ok(' 50 ', 100, 50);
   for (const bad of ['', 'abc', '-5', '5 coins', '1e3', '0x10']) assert.match(E.parseBet(bad, 1000).error, /Type a number/, bad);
   assert.match(E.parseBet('5', 1000).error, /smallest bet is 🪙 10/);
   assert.match(E.parseBet('all', 3).error, /smallest bet/);
-  assert.match(E.parseBet('60k', 1_000_000).error, /biggest bet is 🪙 50,000/);
+  ok('60k', 1_000_000, 60_000); // no maximum
 });
 
 // ---------------------------------------------------------------- the games' maths
@@ -115,10 +115,11 @@ const me = { roles: { cache: { has: (r) => roleSet.has(r) }, add: async (r) => {
 
 function ix(opts = {}) {
   const calls = [];
+  const follow = [];
   const rec = (kind) => async (p) => { calls.push({ kind, p }); };
   const o = opts.options ?? {};
   return {
-    calls, guild, guildId: 'g1', user: person(opts.user ?? 'u1'), member: opts.member ?? me, memberPermissions: opts.perms ?? NONE,
+    calls, follow, followUp: async (p) => { follow.push(p); return { id: `f${follow.length}` }; }, guild, guildId: 'g1', user: person(opts.user ?? 'u1'), member: opts.member ?? me, memberPermissions: opts.perms ?? NONE,
     options: {
       getUser: (k) => o[k] ?? null, getString: (k) => o[k] ?? null, getInteger: (k) => o[k] ?? null, getRole: (k) => o[k] ?? null,
       getSubcommand: () => opts.sub,
@@ -173,9 +174,10 @@ test('/pay: sends coins, and refuses the impossible', async () => {
   await reset('u1'); await give(300); await reset('u2');
   const ok = ix({ options: { member: person('u2'), amount: 120 } });
   await pay.execute(ok);
-  assert.match(card(ok), /Coins sent[\s\S]*sent \*\*🪙 120\*\* to <@u2>[\s\S]*🪙 180 left/);
+  assert.match(card(ok), /Coins sent[\s\S]*sent \*\*🪙 120\*\* to <@u2>[\s\S]*received \*\*🪙 66\*\* after the \*\*🪙 54\*\* tax[\s\S]*🪙 180 left/);
   assert.equal(await coins('u1'), 180);
-  assert.equal(await coins('u2'), 120);
+  assert.equal(await coins('u2'), 66); // 45% tax
+  assert.equal((await store.bank.get('g1')).coins >= 54, true);
 
   const tooMuch = ix({ options: { member: person('u2'), amount: 500 } });
   await pay.execute(tooMuch);
@@ -212,28 +214,28 @@ test('/coinflip: double or nothing, and the coins move correctly', async () => {
   const win = ix({ options: { bet: '100', side: 'heads' } });
   await flipCmd.execute(win);
   assert.match(card(win), /Coinflip\nYou picked \*\*heads\*\* and it landed on \*\*heads\*\*\./);
-  assert.match(said(win), /You won \*\*🪙 100\*\*![\s\S]*Balance: 🪙 1,100/);
-  assert.equal(await coins(), 1100);
+  assert.match(said(win), /You won \*\*🪙 100\*\*![\s\S]*Tax: \*\*🪙 45\*\* went to the bank[\s\S]*Balance: 🪙 1,055/);
+  assert.equal(await coins(), 1055); // 45% tax on the 100 profit
 
   force(0);
   const lose = ix({ options: { bet: '100', side: 'tails' } });
   await flipCmd.execute(lose);
-  assert.match(said(lose), /You lost \*\*🪙 100\*\*[\s\S]*Balance: 🪙 1,000/);
-  assert.equal(await coins(), 1000);
+  assert.match(said(lose), /You lost \*\*🪙 100\*\*[\s\S]*Balance: 🪙 955/);
+  assert.equal(await coins(), 955);
 
   force(1); // tails
   const half = ix({ options: { bet: 'half', side: 'tails' } });
   await flipCmd.execute(half);
-  assert.equal(await coins(), 1500); // bet 500, won 1000 back
+  assert.equal(await coins(), 1217); // bet 477, won 954 back, 215 tax on the 477 profit
   restore();
 
   const broke = ix({ options: { bet: '999999', side: 'heads' } });
   await flipCmd.execute(broke);
-  assert.match(said(broke), /Invalid bet|biggest bet/);
+  assert.match(said(broke), /Not enough coins/);
   const poor = ix({ options: { bet: '40k', side: 'heads' } });
   await flipCmd.execute(poor);
-  assert.match(said(poor), /Not enough coins[\s\S]*only have \*\*🪙 1,500\*\*/);
-  assert.equal(await coins(), 1500, 'a refused bet costs nothing');
+  assert.match(said(poor), /Not enough coins[\s\S]*only have \*\*🪙 1,217\*\*/);
+  assert.equal(await coins(), 1217, 'a refused bet costs nothing');
 });
 
 test('/slots: triple pays, pair returns the bet, nothing loses', async () => {
@@ -245,13 +247,13 @@ test('/slots: triple pays, pair returns the bet, nothing loses', async () => {
   await slots.execute(triple);
   assert.match(card(triple), /🍒  ┃  🍒  ┃  🍒/);
   assert.match(said(triple), /Three 🍒 · \*\*4×\*\*, you won \*\*🪙 300\*\*!/);
-  assert.equal(await coins(), 1300);
+  assert.equal(await coins(), 1165); // 300 profit, 135 tax
 
   force(99, 99, 99);
   const jackpot = ix({ options: { bet: '10' } });
   await slots.execute(jackpot);
   assert.match(said(jackpot), /JACKPOT[\s\S]*500×/);
-  assert.equal(await coins(), 1300 - 10 + 5000);
+  assert.equal(await coins(), 1165 - 10 + 5000 - E.taxOn(4990));
 
   force(0, 0, 40);
   const before = await coins();
@@ -292,22 +294,22 @@ test('/roulette: pick a color, the coins are taken then, the wheel decides', asy
   const win = ix({ customId: 'roulette:blue:100:u1', messageId: 'r1' });
   await roulette.handleButton(win);
   assert.match(textOf(win.calls[0].p), /spinning/);
-  assert.match(textOf(win.calls[1].p), /bet on 🔵 \*\*Blue\*\* · it landed on 🔵 \*\*Blue\*\*[\s\S]*You won \*\*🪙 170\*\*![\s\S]*Balance: 🪙 1,170/);
-  assert.equal(await coins(), 1170); // 100 bet, 270 back
+  assert.match(textOf(win.calls[1].p), /bet on 🔵 \*\*Blue\*\* · it landed on 🔵 \*\*Blue\*\*[\s\S]*You won \*\*🪙 170\*\*![\s\S]*Balance: 🪙 1,093/);
+  assert.equal(await coins(), 1093); // 100 bet, 270 back, 77 tax on the 170 profit
   json(win.calls[1].p);
 
   // tapping the same round again does nothing
   const again = ix({ customId: 'roulette:blue:100:u1', messageId: 'r1' });
   await roulette.handleButton(again);
   assert.match(said(again), /already started/);
-  assert.equal(await coins(), 1170);
+  assert.equal(await coins(), 1093);
 
   force(2); // green
   const lose = ix({ customId: 'roulette:red:100:u1', messageId: 'r2' });
   await roulette.handleButton(lose);
   restore();
   assert.match(textOf(lose.calls[1].p), /landed on 🟢 \*\*Green\*\*[\s\S]*You lost \*\*🪙 100\*\*/);
-  assert.equal(await coins(), 1070);
+  assert.equal(await coins(), 993);
 
   // coins spent elsewhere in the meantime
   await reset();
@@ -371,8 +373,8 @@ test('blackjack: stand and win, stand and lose', async () => {
   let { g } = await startHand();
   g.player = [c('10'), c('9')]; g.dealer = [c('10', '♦'), c('8', '♦')];
   const win = await press('stand');
-  assert.match(textOf(win.calls[0].p), /\*\*Dealer\*\* `10♦` `8♦` · \*\*18\*\*[\s\S]*You win \*\*🪙 100\*\*![\s\S]*Balance: 🪙 1,100/);
-  assert.equal(await coins(), 1100);
+  assert.match(textOf(win.calls[0].p), /\*\*Dealer\*\* `10♦` `8♦` · \*\*18\*\*[\s\S]*You win \*\*🪙 100\*\*![\s\S]*Balance: 🪙 1,055/);
+  assert.equal(await coins(), 1055); // 45 tax
   assert.deepEqual(buttonLabels(win.calls[0].p), [], 'no buttons once it is over');
   json(win.calls[0].p);
   assert.equal(bj.games.size, 0);
@@ -381,7 +383,7 @@ test('blackjack: stand and win, stand and lose', async () => {
   g.player = [c('10'), c('7')]; g.dealer = [c('10', '♦'), c('9', '♦')];
   const lose = await press('stand');
   assert.match(textOf(lose.calls[0].p), /The dealer wins\. You lost \*\*🪙 100\*\*/);
-  assert.equal(await coins(), 1000);
+  assert.equal(await coins(), 955);
 });
 
 test('blackjack: hit until bust, hit to exactly 21, push', async () => {
@@ -417,7 +419,7 @@ test('blackjack: double down', async () => {
   g.player = [c('5'), c('6')]; g.dealer = [c('10', '♦'), c('7', '♦')]; g.deck = [c('10')];
   const d = await press('double');
   assert.match(textOf(d.calls[0].p), /Bet: \*\*🪙 200\*\* \(doubled\)[\s\S]*You win \*\*🪙 200\*\*!/);
-  assert.equal(await coins(), 1200); // 1000 - 100 - 100 + 400
+  assert.equal(await coins(), 1110); // 1000 - 100 - 100 + 400 - 90 tax
 
   await reset(); await give(100);
   ({ g } = await startHand('100')); // 0 left: can't double
@@ -448,7 +450,7 @@ test('blackjack: only the player can press the buttons, and an idle hand stands 
     for (let k = 0; k < 20; k++) await Promise.resolve();
     assert.equal(bj.games.size, 0, 'the hand was finished for them');
     assert.match(textOf(g.interaction.calls.at(-1).p), /You win/);
-    assert.equal(await coins(), before + 200);
+    assert.equal(await coins(), before + 200 - 45);
   } finally {
     mock.timers.reset();
   }
@@ -518,7 +520,9 @@ test('chatting earns a few coins, at most once a minute', async () => {
   });
   await onMessage(msg());
   const first = await coins('chatter');
-  assert.ok(first >= E.CHAT_COINS[0] && first <= E.CHAT_COINS[1], `earned ${first}`);
+  // 2-5 coins, minus the 45% tax (which goes to the bank)
+  assert.ok(first >= 1 && first <= 3, `earned ${first}`);
+  assert.ok((await store.bank.get('g1')).coins > 0);
   await onMessage(msg()); // straight away: no XP and no coins
   assert.equal(await coins('chatter'), first);
 });
@@ -612,4 +616,276 @@ test('/economy setup: one screen sets price and daily boost, the best boost coun
   assert.deepEqual((await getSettings('g1')).shopItems.map((x) => x.roleId), ['bronze', 'silver']);
   assert.deepEqual((await getSettings('g1')).dailyBoosts.map((b) => b.roleId), ['silver']);
   await updateSettings('g1', { shopItems: [], dailyBoosts: [] });
+});
+
+// ---------------------------------------------------------------- the bank
+
+const bankLib = await import('../src/lib/bank.js');
+const bankCmd = await import('../src/commands/bank.js');
+const { totalXpFor } = await import('../src/lib/levels.js');
+const setBank = async (n) => { const cur = (await store.bank.get('g1')).coins; await store.bank.add('g1', n - cur); };
+const bankCoins = async () => (await store.bank.get('g1')).coins;
+const isPublic = (i) => !(i.calls.at(-1).p.flags & 64);
+
+test('the bank starts with 100,000 coins in every server, once', async () => {
+  assert.equal((await store.bank.get('fresh-server')).coins, 100_000);
+  await store.bank.add('fresh-server', -40_000);
+  assert.equal((await store.bank.get('fresh-server')).coins, 60_000, 'not given again');
+  assert.equal(await store.bank.take('fresh-server', 1_000_000), 60_000, 'it never goes below zero');
+});
+
+test('tax: 45% of chat coins and /pay goes to the bank, /daily is untaxed', () => {
+  assert.equal(E.taxOn(100), 45);
+  assert.equal(E.taxOn(3), 1);
+  assert.equal(E.taxOn(0), 0);
+});
+
+test('/daily is paid by the bank first, and made up when the bank is short', async () => {
+  const daily = await import('../src/commands/daily.js');
+  await setBank(100_000);
+  const a = ix({ user: 'dA', member: { roles: { cache: { has: () => false } } } });
+  await daily.execute(a);
+  assert.equal(await coins('dA'), 250);
+  assert.equal(await bankCoins(), 99_750);
+  assert.match(card(a), /250 of it came from the bank/);
+
+  await setBank(100); // short: the bank pays 100, the other 150 is created new
+  const b = ix({ user: 'dB', member: { roles: { cache: { has: () => false } } } });
+  await daily.execute(b);
+  assert.equal(await coins('dB'), 250, 'nobody is refused');
+  assert.equal(await bankCoins(), 0);
+});
+
+test('after a win: pay tax, or dodge it and get caught or get away', async () => {
+  const flipCmd = await import('../src/commands/coinflip.js');
+  const win = async (user = 'u1') => { force(0); const i = ix({ user, options: { bet: '100', side: 'heads' } }); await flipCmd.execute(i); restore(); return i; };
+  const idOf = (i) => customIds(i.follow[0])[0].split(':')[2];
+  const press = async (action, i, user = 'u1') => { const p = ix({ user, customId: `bank:${action}:${idOf(i)}` }); await bankCmd.handleButton(p); return p; };
+  await setBank(100_000);
+
+  // the buttons show up after a win, only for the winner, and never after a loss
+  await reset(); await give(1000);
+  let i = await win();
+  assert.deepEqual(customIds(i.follow[0]), [`bank:pay:${idOf(i)}`, `bank:skip:${idOf(i)}`]);
+  assert.match(textOf(i.follow[0]), /45%[\s\S]*🪙 45[\s\S]*60%[\s\S]*80%/);
+  assert.ok(i.follow[0].flags & 64, 'private to the player');
+  force(0); const lost = ix({ options: { bet: '100', side: 'tails' } }); await flipCmd.execute(lost); restore();
+  assert.equal(lost.follow.length, 0);
+
+  // someone else can't answer for you
+  const thief = await press('skip', i, 'u2');
+  assert.match(said(thief), /belongs to someone else/);
+
+  // Pay tax: nothing changes
+  await reset(); await give(1000);
+  i = await win();
+  const kept = await coins();
+  const paid = await press('pay', i);
+  assert.match(textOf(paid.calls[0].p), /You paid \*\*🪙 45\*\* tax/);
+  assert.equal(await coins(), kept);
+  const late = await press('pay', i);
+  assert.match(textOf(late.calls[0].p), /has ended/);
+
+  // Don't pay, caught (60%): the bank takes 80% of the coins
+  await reset(); await give(1000);
+  i = await win();
+  const wallet = await coins();
+  const bankBefore = await bankCoins();
+  force(0);
+  const caught = await press('skip', i);
+  restore();
+  assert.match(textOf(caught.calls[0].p), new RegExp(`Caught[\\s\\S]*🪙 ${Math.floor(wallet * 0.8)}`));
+  assert.equal(await coins(), wallet - Math.floor(wallet * 0.8));
+  assert.equal(await bankCoins(), bankBefore + Math.floor(wallet * 0.8));
+
+  // Don't pay, not caught: the tax comes back
+  await reset(); await give(1000);
+  i = await win();
+  const before = await coins();
+  force(99);
+  const away = await press('skip', i);
+  restore();
+  assert.match(textOf(away.calls[0].p), /Not caught/);
+  assert.equal(await coins(), before + 45);
+
+  // Over 100,000 coins: it asks "are you sure?" first, and Cancel pays the tax
+  await reset(); await give(200_000);
+  i = await win();
+  const rich = await coins();
+  const ask = await press('skip', i);
+  assert.match(textOf(ask.calls[0].p), /Are you sure[\s\S]*60%[\s\S]*80%/);
+  assert.deepEqual(customIds(ask.calls[0].p), [`bank:risk:${idOf(i)}`, `bank:pay:${idOf(i)}`]);
+  assert.equal(await coins(), rich, 'nothing happens until they confirm');
+  force(0);
+  const risk = await press('risk', i);
+  restore();
+  assert.match(textOf(risk.calls[0].p), /Caught/);
+  assert.equal(await coins(), rich - Math.floor(rich * 0.8));
+
+  await reset(); await give(200_000);
+  i = await win();
+  await press('skip', i);
+  const cancel = await press('pay', i);
+  assert.match(textOf(cancel.calls[0].p), /You paid/);
+});
+
+test('after a win: no answer in time means you pay, and the buttons go away', async () => {
+  const flipCmd = await import('../src/commands/coinflip.js');
+  await reset(); await give(1000);
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    force(0);
+    const i = ix({ options: { bet: '100', side: 'heads' } });
+    await flipCmd.execute(i);
+    restore();
+    const id = customIds(i.follow[0])[0].split(':')[2];
+    mock.timers.tick(bankLib.timing.choiceMs + 1);
+    for (let k = 0; k < 10; k++) await Promise.resolve();
+    const edit = i.calls.at(-1);
+    assert.equal(edit.kind, 'editReply');
+    assert.equal(edit.p.message, 'f1', 'edits the private message');
+    assert.match(textOf(edit.p), /You paid \*\*🪙 45\*\* tax/);
+    assert.deepEqual(customIds(edit.p), []);
+    const late = ix({ customId: `bank:skip:${id}` });
+    await bankCmd.handleButton(late);
+    assert.match(textOf(late.calls[0].p), /has ended/);
+    assert.equal(await coins(), 1055);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('/bank view shows the fund for everyone', async () => {
+  await setBank(123_456);
+  const v = ix({ sub: 'view' });
+  await bankCmd.execute(v);
+  assert.ok(isPublic(v));
+  assert.match(card(v), /The Server Bank\n# 🪙 123,456/);
+  assert.match(said(v), /45%/);
+});
+
+test('/bank rob: 5% chance, fee of 10% (at least 5,000) goes to the bank, once every 24 hours', async () => {
+  const rob = (user = 'u1') => ix({ sub: 'rob', user });
+  await setBank(100_000);
+
+  await reset(); await give(4_000);
+  const broke = rob(); await bankCmd.execute(broke);
+  assert.match(said(broke), /costs \*\*🪙 5,000\*\*[\s\S]*have \*\*🪙 4,000\*\*/);
+  assert.equal(await coins(), 4_000);
+  assert.equal((await store.stats.get('g1', 'u1')).robAt, undefined, 'no cooldown started');
+
+  await give(20_000); // 24,000: the fee is the 5,000 minimum
+  force(50);
+  const fail = rob(); await bankCmd.execute(fail);
+  restore();
+  assert.match(card(fail), /Busted[\s\S]*\*\*🪙 5,000\*\* fee went into the bank/);
+  assert.ok(isPublic(fail), 'everyone sees it');
+  assert.equal(await coins(), 19_000);
+  assert.equal(await bankCoins(), 105_000);
+
+  const again = rob(); await bankCmd.execute(again);
+  assert.match(said(again), /already tried today/);
+  assert.equal(await coins(), 19_000, 'no second fee');
+
+  // 24 hours later: allowed again. A rich robber pays 10% of the wallet, and wins 30% of the bank.
+  await reset('u3'); await give(100_000, 'u3');
+  force(0);
+  const win = rob('u3'); await bankCmd.execute(win);
+  restore();
+  assert.match(card(win), /THE BANK WAS ROBBED[\s\S]*🪙 34,500/); // bank 105,000 + 10,000 fee = 115,000 * 30%
+  assert.ok(isPublic(win));
+  assert.equal(await coins('u3'), 100_000 - 10_000 + 34_500);
+  assert.equal(await bankCoins(), 115_000 - 34_500);
+  const v = ix({ sub: 'view' }); await bankCmd.execute(v);
+  assert.match(said(v), /Last robbery: <@u3> got away with 🪙 34,500/);
+
+  await store.stats.set('g1', 'u1', { robAt: Date.now() - 25 * 3_600_000 });
+  force(50);
+  const next = rob(); await bankCmd.execute(next);
+  restore();
+  assert.match(card(next), /Busted/);
+
+  await setBank(500);
+  const empty = rob('u3'); await bankCmd.execute(empty);
+  assert.match(said(empty), /Almost empty/);
+});
+
+test('/bank loan: needs a linked account and level 5, limited by the bank, 10% interest', async () => {
+  const loan = (amount, user = 'L1') => ix({ sub: 'loan', user, options: { amount } });
+  const repay = (amount, user = 'L1') => ix({ sub: 'repay', user, options: { amount } });
+  await setBank(100_000);
+
+  const nolink = loan(500); await bankCmd.execute(nolink);
+  assert.match(said(nolink), /Link your Roblox account/);
+  await store.links.set('L1', { robloxId: 1, username: 'x' });
+  const low = loan(500); await bankCmd.execute(low);
+  assert.match(said(low), /level 5\*\*[\s\S]*level 0/);
+  await store.stats.set('g1', 'L1', { xp: totalXpFor(5) });
+
+  const tiny = loan(50); await bankCmd.execute(tiny);
+  assert.match(said(tiny), /smallest loan is \*\*🪙 100\*\*/);
+  const big = loan(3_000); await bankCmd.execute(big);
+  assert.match(said(big), /up to \*\*🪙 2,000\*\*/);
+  await setBank(5_000);
+  const share = loan(600); await bankCmd.execute(share);
+  assert.match(said(share), /up to \*\*🪙 500\*\*[\s\S]*10% of the bank/);
+
+  await setBank(100_000);
+  const ok = loan(1_000); await bankCmd.execute(ok);
+  assert.match(card(ok), /Loan approved[\s\S]*borrowed \*\*🪙 1,000\*\*[\s\S]*Pay back \*\*🪙 1,100\*\* \(10% extra\)/);
+  assert.equal(await coins('L1'), 1_000);
+  assert.equal(await bankCoins(), 99_000);
+  const doc = await store.stats.get('g1', 'L1');
+  assert.equal(doc.loan.owed, 1_100);
+  assert.ok(Math.abs(doc.loan.dueAt - (Date.now() + 3 * 86_400_000)) < 5_000);
+
+  const second = loan(200); await bankCmd.execute(second);
+  assert.match(said(second), /still owe \*\*🪙 1,100\*\*/);
+  assert.equal(await bankCoins(), 99_000, 'nothing was taken from the bank');
+
+  const part = repay(300); await bankCmd.execute(part);
+  assert.match(said(part), /paid \*\*🪙 300\*\*[\s\S]*still owe \*\*🪙 800\*\*/);
+  assert.equal(await bankCoins(), 99_300);
+  const all = repay(); await bankCmd.execute(all); // only 700 coins left: pays what they can
+  assert.match(said(all), /paid \*\*🪙 700\*\*[\s\S]*still owe \*\*🪙 100\*\*/);
+  await give(500, 'L1');
+  const done = repay(); await bankCmd.execute(done);
+  assert.match(said(done), /Your loan is paid off/);
+  assert.equal(await bankCoins(), 100_100, 'the bank got its money plus 10% interest');
+  const none = repay(); await bankCmd.execute(none);
+  assert.match(said(none), /don't have a loan/);
+});
+
+test('an overdue loan takes half of every coin you receive and blocks games and the shop', async () => {
+  const flipCmd = await import('../src/commands/coinflip.js');
+  const shop = await import('../src/commands/shop.js');
+  await setBank(100_000);
+  await reset('L2'); await give(1_000, 'L2');
+  await store.stats.set('g1', 'L2', { loan: { owed: 600, dueAt: Date.now() - 1000, principal: 500 } });
+
+  const got = await bankLib.credit('g1', 'L2', 100);
+  assert.equal(got.garnished, 50);
+  assert.equal(await coins('L2'), 1_050);
+  assert.equal((await store.stats.get('g1', 'L2')).loan.owed, 550);
+  assert.equal(await bankCoins(), 100_050);
+
+  const game = ix({ user: 'L2', options: { bet: '100', side: 'heads' } });
+  await flipCmd.execute(game);
+  assert.match(said(game), /Loan overdue[\s\S]*owe \*\*🪙 550\*\*/);
+  assert.equal(await coins('L2'), 1_050, 'no bet was taken');
+
+  await updateSettings('g1', { shopItems: [{ roleId: 'vip', price: 10 }] });
+  const buy = ix({ user: 'L2', customId: 'shop:buy:vip' });
+  await shop.handleButton(buy);
+  assert.match(textOf(buy.calls[0].p), /Loan overdue/);
+  await updateSettings('g1', { shopItems: [] });
+
+  // not overdue yet: nothing is taken and games work
+  await store.stats.set('g1', 'L2', { loan: { owed: 600, dueAt: Date.now() + 86_400_000, principal: 500 } });
+  assert.equal((await bankLib.credit('g1', 'L2', 100)).garnished, 0);
+  force(0);
+  const ok = ix({ user: 'L2', options: { bet: '100', side: 'heads' } });
+  await flipCmd.execute(ok);
+  restore();
+  assert.match(said(ok), /You won/);
 });

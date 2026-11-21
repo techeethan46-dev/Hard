@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { fmt } from '../lib/economy.js';
+import { credit } from '../lib/bank.js';
+import { fmt, taxOn } from '../lib/economy.js';
 import { store } from '../lib/store.js';
 import { notice } from '../lib/ui.js';
 
@@ -20,6 +21,9 @@ export async function execute(interaction) {
     const have = (await store.stats.get(interaction.guildId, interaction.user.id))?.coins ?? 0;
     return interaction.reply(notice('bad', `You only have **${fmt(have)}**.`, { title: 'Not enough coins' }));
   }
-  await store.stats.addCoins(interaction.guildId, to.id, amount);
-  return interaction.reply(notice('ok', `You sent **${fmt(amount)}** to ${to}.\n-# You have ${fmt(left.coins)} left`, { title: 'Coins sent' }));
+  // The receiver gets the coins minus the tax, which goes to the bank.
+  const tax = taxOn(amount);
+  if (tax > 0) await store.bank.add(interaction.guildId, tax);
+  await credit(interaction.guildId, to.id, amount - tax);
+  return interaction.reply(notice('ok', `You sent **${fmt(amount)}** to ${to}.\n${to} received **${fmt(amount - tax)}** after the **${fmt(tax)}** tax (it went to the bank).\n-# You have ${fmt(left.coins)} left`, { title: 'Coins sent' }));
 }

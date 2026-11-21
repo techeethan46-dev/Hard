@@ -8,8 +8,10 @@
 //   store.warnings  per server + member: list of { id, reason, moderatorId, at }
 //   store.tickets   channelId -> { guildId, number, ownerId, type, claimedBy, openedAt, closing }
 //   store.stats     per server + member: { xp, streak: { current, best, lastDay, ... } } for levels and streaks
+//   store.bank      per server: { coins } the shared fund (tax in, daily/loans/heists out)
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { BANK_START } from './economy.js';
 
 /** @type {ReturnType<typeof memoryBackend>} */
 export let store;
@@ -47,6 +49,7 @@ async function mongoBackend(db) {
   const stats = db.collection('memberStats');
   const giveaways = db.collection('giveaways');
   const composed = db.collection('composedMessages');
+  const bank = db.collection('bank');
 
   await Promise.all([
     links.createIndex({ robloxId: 1 }),
@@ -61,6 +64,15 @@ async function mongoBackend(db) {
     giveaways.createIndex({ guildId: 1, endsAt: -1 }),
     composed.createIndex({ guildId: 1, createdAt: -1 }),
   ]);
+
+  // The bank starts with a gift the first time a server uses it.
+  const ensureBank = async (g) => {
+    try {
+      await bank.updateOne({ _id: g }, { $setOnInsert: { coins: BANK_START } }, { upsert: true });
+    } catch (err) {
+      if (err.code !== 11000) throw err; // two at once: the other one created it
+    }
+  };
 
   // Stored with _id = Discord/channel ID; hand back plain objects without Mongo's fields.
   const clean = (doc) => {
@@ -101,6 +113,21 @@ async function mongoBackend(db) {
       list: async (guildId, { ended } = {}) =>
         (await giveaways.find({ guildId, ...(ended === undefined ? {} : { ended }) }).project({ entries: 0 }).sort({ endsAt: -1 }).limit(25).toArray()).map(gw),
     },
+    bank: {
+      get: async (g) => { await ensureBank(g); return clean(await bank.findOne({ _id: g })); },
+      /** Puts coins in (or takes them out with a negative number). */
+      add: async (g, n) => {
+        await ensureBank(g);
+        return clean(await bank.findOneAndUpdate({ _id: g }, { $inc: { coins: n } }, { returnDocument: 'after' }));
+      },
+      /** Takes up to `n` coins (never below zero) and returns how many it really took. */
+      take: async (g, n) => {
+        await ensureBank(g);
+        const before = await bank.findOneAndUpdate({ _id: g }, [{ $set: { coins: { $max: [0, { $subtract: ['$coins', n] }] } } }], { returnDocument: 'before' });
+        return Math.min(n, before?.coins ?? 0);
+      },
+      set: async (g, patch) => { await ensureBank(g); await bank.updateOne({ _id: g }, { $set: patch }); },
+    },
     stats: {
       get: async (g, u) => clean(await stats.findOne({ _id: sid(g, u) })),
       /** Adds XP atomically and returns the updated record. */
@@ -134,6 +161,38 @@ async function mongoBackend(db) {
           throw err;
         }
       },
+      /** Starts a heist attempt once per cooldown. Returns the record, or null if they tried within `cooldownMs`. */
+      claimRob: async (g, u, now, cooldownMs) => {
+        try {
+          return clean(await stats.findOneAndUpdate(
+            { _id: sid(g, u), $or: [{ robAt: { $exists: false } }, { robAt: { $lte: now - cooldownMs } }] },
+            { $set: { robAt: now }, $setOnInsert: { guildId: g, userId: u } },
+            { upsert: true, returnDocument: 'after' },
+          ));
+        } catch (err) {
+          if (err.code === 11000) return null;
+          throw err;
+        }
+      },
+      /** Opens a loan and pays out `principal`, only if they have no open loan. Returns the record, or null. */
+      openLoan: async (g, u, loan, principal) => {
+        try {
+          return clean(await stats.findOneAndUpdate(
+            { _id: sid(g, u), $or: [{ 'loan.owed': { $exists: false } }, { 'loan.owed': { $lte: 0 } }] },
+            { $set: { loan }, $inc: { coins: principal }, $setOnInsert: { guildId: g, userId: u } },
+            { upsert: true, returnDocument: 'after' },
+          ));
+        } catch (err) {
+          if (err.code === 11000) return null;
+          throw err;
+        }
+      },
+      /** Lowers what they owe by `amount`, only if they owe at least that much. Returns the record, or null. */
+      payDebt: async (g, u, amount) => clean(await stats.findOneAndUpdate(
+        { _id: sid(g, u), 'loan.owed': { $gte: amount } },
+        { $inc: { 'loan.owed': -amount } },
+        { returnDocument: 'after' },
+      )),
       set: async (g, u, patch) => {
         await stats.updateOne({ _id: sid(g, u) }, { $set: { ...patch, guildId: g, userId: u } }, { upsert: true });
       },
@@ -203,7 +262,7 @@ async function mongoBackend(db) {
 // ---------------------------------------------------------------- In-memory / JSON file (dev & tests)
 
 export function memoryBackend(path = null) {
-  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {}, stats: {}, giveaways: {}, composed: {} };
+  let data = { settings: {}, links: {}, pending: {}, warnings: {}, tickets: {}, ticketCounters: {}, stats: {}, giveaways: {}, composed: {}, bank: {} };
   if (path) {
     mkdirSync(dirname(path), { recursive: true });
     try {
@@ -220,6 +279,7 @@ export function memoryBackend(path = null) {
   const copy = (x) => (x ? structuredClone(x) : null);
 
   const wkey = (g, d) => `${g}:${d}`;
+  const ensureBank = (g) => (data.bank[g] ??= { coins: BANK_START });
   const field = (doc, path) => path.split('.').reduce((o, k) => o?.[k], doc) ?? 0;
   const inGuild = (g) => Object.values(data.stats).filter((d) => d.guildId === g);
   const noEntries = (g) => { const { entries, ...rest } = g; return copy(rest); };
@@ -261,6 +321,12 @@ export function memoryBackend(path = null) {
         .filter((g) => g.guildId === guildId && (ended === undefined || g.ended === ended))
         .sort((a, b) => b.endsAt - a.endsAt).slice(0, 25).map(noEntries),
     },
+    bank: {
+      get: async (g) => copy(ensureBank(g)),
+      add: async (g, n) => { const b = ensureBank(g); b.coins += n; save(); return copy(b); },
+      take: async (g, n) => { const b = ensureBank(g); const took = Math.min(n, b.coins); b.coins -= took; save(); return took; },
+      set: async (g, patch) => { Object.assign(ensureBank(g), structuredClone(patch)); save(); },
+    },
     stats: {
       get: async (g, u) => copy(data.stats[wkey(g, u)]),
       addXp: async (g, u, amount) => {
@@ -283,6 +349,24 @@ export function memoryBackend(path = null) {
         const d = (data.stats[wkey(g, u)] ??= { guildId: g, userId: u });
         if (d.dailyDay === day) return null;
         d.dailyDay = day; d.coins = (d.coins ?? 0) + amount; save();
+        return copy(d);
+      },
+      claimRob: async (g, u, now, cooldownMs) => {
+        const d = (data.stats[wkey(g, u)] ??= { guildId: g, userId: u });
+        if (d.robAt !== undefined && d.robAt > now - cooldownMs) return null;
+        d.robAt = now; save();
+        return copy(d);
+      },
+      openLoan: async (g, u, loan, principal) => {
+        const d = (data.stats[wkey(g, u)] ??= { guildId: g, userId: u });
+        if ((d.loan?.owed ?? 0) > 0) return null;
+        d.loan = structuredClone(loan); d.coins = (d.coins ?? 0) + principal; save();
+        return copy(d);
+      },
+      payDebt: async (g, u, amount) => {
+        const d = data.stats[wkey(g, u)];
+        if (!d || (d.loan?.owed ?? 0) < amount) return null;
+        d.loan.owed -= amount; save();
         return copy(d);
       },
       set: async (g, u, patch) => {
