@@ -163,7 +163,7 @@ Coins are the server's fake currency. They have no link to Robux or real money.
   - **Tax on a win:** after a win a private message offers **Pay tax** or **Don't pay tax** for 10 seconds (no answer
     means you pay; the tax is already in the bank). Not paying is a 60% chance of being caught, and then the bank
     takes 80% of all your coins. Above 100,000 coins you are asked to confirm first.
-  - **`/bank rob`:** 5% chance to take 30% of the bank. It costs 10% of your coins (at least 5,000, goes to the bank),
+  - **`/bank rob`:** 5% chance to take 30% of the bank, but never more than 30,000. It costs 10% of your coins (at least 5,000, goes to the bank),
     once every 24 hours per person, and the result is posted for everyone. Not possible when the bank is under 1,000.
   - **`/bank loan` / `/bank repay`:** needs a linked Roblox account and level 5. Borrow 100 to 2,000 (and at most 10% of
     the bank), pay back 10% extra within 3 days. After the deadline half of everything you receive goes to the debt,

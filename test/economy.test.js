@@ -792,12 +792,12 @@ test('/bank rob: 5% chance, fee of 10% (at least 5,000) goes to the bank, once e
   force(0);
   const win = rob('u3'); await bankCmd.execute(win);
   restore();
-  assert.match(card(win), /THE BANK WAS ROBBED[\s\S]*🪙 34,500/); // bank 105,000 + 10,000 fee = 115,000 * 30%
+  assert.match(card(win), /THE BANK WAS ROBBED[\s\S]*🪙 30,000/); // 30% of 115,000 is 34,500, but the most you can take is 30,000
   assert.ok(isPublic(win));
-  assert.equal(await coins('u3'), 100_000 - 10_000 + 34_500);
-  assert.equal(await bankCoins(), 115_000 - 34_500);
+  assert.equal(await coins('u3'), 100_000 - 10_000 + 30_000);
+  assert.equal(await bankCoins(), 115_000 - 30_000);
   const v = ix({ sub: 'view' }); await bankCmd.execute(v);
-  assert.match(said(v), /Last robbery: <@u3> got away with 🪙 34,500/);
+  assert.match(said(v), /Last robbery: <@u3> got away with 🪙 30,000/);
 
   await store.stats.set('g1', 'u1', { robAt: Date.now() - 25 * 3_600_000 });
   force(50);
@@ -888,4 +888,16 @@ test('an overdue loan takes half of every coin you receive and blocks games and 
   await flipCmd.execute(ok);
   restore();
   assert.match(said(ok), /You won/);
+});
+
+test('a robbery below the cap takes exactly 30% of the bank', async () => {
+  await setBank(50_000);
+  await reset('u5'); await give(10_000, 'u5');
+  force(0);
+  const i = ix({ sub: 'rob', user: 'u5' });
+  await bankCmd.execute(i);
+  restore();
+  // fee 5,000 -> bank 55,000 -> 30% = 16,500 (under the 30,000 cap)
+  assert.match(card(i), /THE BANK WAS ROBBED[\s\S]*🪙 16,500/);
+  assert.equal(await bankCoins(), 55_000 - 16_500);
 });
