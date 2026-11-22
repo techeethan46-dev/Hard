@@ -34,7 +34,7 @@ test('every page is a valid private card with the category menu', () => {
   const home = textOf(help.helpMessage(commands, ALL, 'Rocart League Helper'));
   assert.match(home, /## 📖 Rocart League Helper · Help/);
   assert.match(home, /🙋 \*\*Getting started\*\* · 6 commands/); // 5 slash commands + r!afk
-  assert.match(home, /🛡️ \*\*Moderation\*\* · 7 commands/);
+  assert.match(home, /🛡️ \*\*Moderation\*\* · 8 commands/);
 });
 
 test('sub-commands are listed under their command', () => {

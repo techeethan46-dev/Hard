@@ -68,6 +68,7 @@ Skip any step you don't need; that feature just stays off.
 | `/shop view` | Everyone | Buy roles with coins (staff add and remove roles in `/economy setup`) |
 | `/coinflip`, `/slots`, `/blackjack`, `/roulette` | Everyone | Games you play with coins |
 | `/economy give/take` | Admins | Give coins to someone or take some back |
+| `/gameban ban/unban/check` | Owners | Ban a player from the Roblox game (see In-game bans) |
 | `/economy setup` | Admins | One screen for the role shop: pick a role, type its price and its daily boost % |
 | `/help` | Everyone | A private menu of the commands, grouped by category. People only see the commands they can use |
 | `/verify` or the **Verify** button | Everyone | Links a Roblox account (see below) |
@@ -247,6 +248,24 @@ The bot uses the first of these that is set up:
   2. Scopes **openid** and **profile**; redirect URL `https://<your-service>.onrender.com/oauth/callback`.
   3. Put the client ID and secret in Render (`ROBLOX_OAUTH_CLIENT_ID`, `ROBLOX_OAUTH_CLIENT_SECRET`).
   4. Roblox may limit a new app's users until it's reviewed. Check the app page and leave time for that.
+
+## In-game bans
+
+`/gameban` bans a player from the Roblox **game** (not the Discord server) with Roblox Open Cloud. Only the Discord IDs
+listed in `ownerIds` in `config.json` can use it (the command is also hidden from members without Manage Server).
+
+- `/gameban ban roblox:<username or ID> reason:<why> days:<optional>` (or `member:` to use a member's linked Roblox
+  account). Leave `days` empty for a permanent ban.
+- `/gameban unban` lifts it, `/gameban check` shows whether someone is banned and until when.
+- Every ban and unban is logged in the mod log. The bot reads each ban back from Roblox to make sure it really applied.
+
+**Setup (the game owner does the key part):**
+1. Create an API key at <https://create.roblox.com/dashboard/credentials> > **API Keys** > **Create API Key**.
+2. Add the **user-restrictions** API system with the experience (game) selected, and tick **read** and **write**
+   (`universe.user-restriction`).
+3. Set **Accepted IP addresses** to `0.0.0.0/0` (Render's address changes), choose an expiry, and create the key.
+4. Put it in Render as `ROBLOX_API_KEY`. Never share it in chat or commit it.
+5. Put the Discord user IDs of the owners in `config.json` under `"ownerIds": ["123", "456"]`.
 
 ## Tickets
 

@@ -1,6 +1,7 @@
 {
   "nicknameFormat": "{displayName} (@{username})",
   "statusUpdateSeconds": 120,
+  "ownerIds": [],
   "ticketTypes": [
     {
       "id": "support",
