@@ -11,6 +11,10 @@ export const config = {
   // Leave it blank to register them everywhere the bot is invited.
   guildId: env('GUILD_ID'),
   // Roles, channels and the game are NOT set here: run /setup in Discord.
+  // Optional. A Roblox Open Cloud key (user-restrictions read + write) so /gameban can ban players in the game.
+  robloxApiKey: env('ROBLOX_API_KEY'),
+  // Discord user IDs allowed to use /gameban. Edit "ownerIds" in config.json.
+  ownerIds: (Array.isArray(file.ownerIds) ? file.ownerIds : []).map((id) => String(id).trim()).filter(Boolean),
   // Optional. Lets members verify with Bloxlink instead (see /verify). Make the key on blox.link > Developer API.
   bloxlinkKey: env('BLOXLINK_API_KEY'),
   oauth: {

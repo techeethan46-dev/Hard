@@ -30,7 +30,7 @@ export const CATEGORIES = [
   },
   {
     id: 'mod', emoji: '🛡️', title: 'Moderation', blurb: 'Warnings, timeouts, bans and raid protection',
-    commands: ['warn', 'warnings', 'timeout', 'kick', 'ban', 'purge', 'raidmode'],
+    commands: ['warn', 'warnings', 'timeout', 'kick', 'ban', 'purge', 'raidmode', 'gameban'],
   },
   { id: 'setup', emoji: '⚙️', title: 'Setup', blurb: 'Set the bot up and post its panels', commands: ['setup', 'panel'] },
 ];
